@@ -15,9 +15,21 @@ export const RecentAlerts: React.FC = () => {
   const [thresholdFilter, setThresholdFilter] = useState<ThresholdFilter>('all');
   const { data: alerts = [], isLoading } = useTodayAlerts(undefined, 50); // Fetch more since we'll filter
 
+  /**
+   * Format date without timezone conversion - displays UTC time as stored in DB
+   * @param date - Date object or ISO string
+   * @returns Formatted date string in DD/MM/YYYY, HH:MM:SS format
+   */
   const formatDate = (date: Date | string): string => {
     const d = typeof date === 'string' ? new Date(date) : date;
-    return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+    // Format as UTC to avoid timezone conversion
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    const hours = String(d.getUTCHours()).padStart(2, '0');
+    const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+    const seconds = String(d.getUTCSeconds()).padStart(2, '0');
+    return `${day}/${month}/${year}, ${hours}:${minutes}:${seconds}`;
   };
 
   // Filter alerts by threshold
@@ -111,7 +123,16 @@ export const RecentAlerts: React.FC = () => {
                   <div className="flex items-start justify-between gap-4 mb-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2.5 mb-3">
-                        <span className="font-semibold text-body">{alert.symbol}</span>
+                        <div className="flex flex-col">
+                          {alert.type === 'MUTUAL_FUND' && alert.name ? (
+                            <>
+                              <span className="font-semibold text-body">{alert.name}</span>
+                              <span className="text-caption text-muted-foreground font-mono">{alert.symbol}</span>
+                            </>
+                          ) : (
+                            <span className="font-semibold text-body">{alert.symbol}</span>
+                          )}
+                        </div>
                         {alert.critical && (
                           <Badge variant="critical" className="text-xs px-2 py-0.5">
                             CRITICAL

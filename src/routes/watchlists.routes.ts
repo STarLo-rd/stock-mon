@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import { watchlists, watchlist } from '../db/schema';
 import { eq, and, sql } from 'drizzle-orm';
+import { requireAuth, AuthRequest } from '../middleware/auth.middleware';
+import { config } from '../config';
 import logger from '../utils/logger';
 
 /**
@@ -21,12 +23,49 @@ function validateMarket(market: any): market is 'INDIA' | 'USA' {
 }
 
 /**
+ * GET /api/watchlists/limits
+ * Get subscription limits (public endpoint)
+ * Returns the current limits for watchlists and items
+ */
+router.get('/limits', async (_req: Request, res: Response) => {
+  try {
+    res.json({
+      success: true,
+      data: {
+        maxWatchlistsPerType: config.limits.maxWatchlistsPerType,
+        maxItemsPerWatchlist: config.limits.maxItemsPerWatchlist,
+      },
+    });
+  } catch (error) {
+    logger.error('Error fetching limits', { error });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch limits',
+    });
+  }
+});
+
+/**
  * GET /api/watchlists
- * Get all watchlists for a market and type
+ * Get all watchlists for a market and type (user-scoped)
  * Query params: market (optional, defaults to INDIA), type (required)
  */
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId;
+    
+    // Validate userId is present (should be set by requireAuth middleware)
+    if (!userId) {
+      logger.error('userId is missing in watchlists GET request', { 
+        hasAuthHeader: !!req.headers.authorization,
+        query: req.query 
+      });
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Please login again.',
+      });
+    }
+
     const { market = 'INDIA', type } = req.query;
 
     if (!validateMarket(market)) {
@@ -47,6 +86,7 @@ router.get('/', async (req: Request, res: Response) => {
       .select()
       .from(watchlists)
       .where(and(
+        eq(watchlists.userId, userId),
         eq(watchlists.market, market as 'INDIA' | 'USA'),
         eq(watchlists.type, type as 'INDEX' | 'STOCK' | 'MUTUAL_FUND')
       ))
@@ -57,21 +97,34 @@ router.get('/', async (req: Request, res: Response) => {
       data: results,
     });
   } catch (error) {
-    logger.error('Error fetching watchlists', { error, market: req.query.market, type: req.query.type });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
+    logger.error('Error fetching watchlists', { 
+      error: errorMessage,
+      stack: errorStack,
+      userId: req.userId,
+      market: req.query.market, 
+      type: req.query.type,
+      queryString: req.url
+    });
+    
     res.status(500).json({
       success: false,
       error: 'Failed to fetch watchlists',
+      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
     });
   }
 });
 
 /**
  * POST /api/watchlists
- * Create a new watchlist
+ * Create a new watchlist (user-scoped)
  * Body: { name, type (required), market (optional, defaults to INDIA) }
  */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { name, type, market = 'INDIA' } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -95,11 +148,35 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Get the highest order value for this market and type
+    // Check watchlist limit (configurable via env)
+    const MAX_WATCHLISTS_PER_TYPE = config.limits.maxWatchlistsPerType;
+    const existingWatchlists = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(watchlists)
+      .where(and(
+        eq(watchlists.userId, userId),
+        eq(watchlists.market, market as 'INDIA' | 'USA'),
+        eq(watchlists.type, type as 'INDEX' | 'STOCK' | 'MUTUAL_FUND')
+      ));
+
+    const watchlistCount = Number(existingWatchlists[0]?.count ?? 0);
+    if (watchlistCount >= MAX_WATCHLISTS_PER_TYPE) {
+      return res.status(403).json({
+        success: false,
+        error: `You have reached the limit of ${MAX_WATCHLISTS_PER_TYPE} watchlists for ${type}. Please upgrade to Premium to create more watchlists.`,
+        limitReached: true,
+        limitType: 'watchlist',
+        currentCount: watchlistCount,
+        maxLimit: MAX_WATCHLISTS_PER_TYPE,
+      });
+    }
+
+    // Get the highest order value for this market and type (user-scoped)
     const maxOrderResult = await db
       .select({ maxOrder: sql<number>`COALESCE(MAX(${watchlists.order}), -1)` })
       .from(watchlists)
       .where(and(
+        eq(watchlists.userId, userId),
         eq(watchlists.market, market as 'INDIA' | 'USA'),
         eq(watchlists.type, type as 'INDEX' | 'STOCK' | 'MUTUAL_FUND')
       ));
@@ -109,6 +186,7 @@ router.post('/', async (req: Request, res: Response) => {
     const result = await db
       .insert(watchlists)
       .values({
+        userId,
         name: name.trim(),
         market: market as 'INDIA' | 'USA',
         type: type as 'INDEX' | 'STOCK' | 'MUTUAL_FUND',
@@ -131,11 +209,12 @@ router.post('/', async (req: Request, res: Response) => {
 
 /**
  * PATCH /api/watchlists/:id
- * Update a watchlist (name, order)
+ * Update a watchlist (name, order) - user-scoped
  * Body: { name? (optional), order? (optional) }
  */
-router.patch('/:id', async (req: Request, res: Response) => {
+router.patch('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { id } = req.params;
     const { name, order } = req.body;
 
@@ -180,13 +259,16 @@ router.patch('/:id', async (req: Request, res: Response) => {
     const result = await db
       .update(watchlists)
       .set(updateData)
-      .where(eq(watchlists.id, id))
+      .where(and(
+        eq(watchlists.id, id),
+        eq(watchlists.userId, userId)
+      ))
       .returning();
 
     if (result.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'Watchlist not found',
+        error: 'Watchlist not found or you do not have permission to update it',
       });
     }
 
@@ -205,12 +287,13 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
 /**
  * DELETE /api/watchlists/:id
- * Delete a watchlist
+ * Delete a watchlist (user-scoped)
  * Query params: market (optional, defaults to INDIA)
  * Note: This will also delete all symbols in the watchlist
  */
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { id } = req.params;
     const { market = 'INDIA' } = req.query;
 
@@ -228,17 +311,21 @@ router.delete('/:id', async (req: Request, res: Response) => {
       });
     }
 
-    // Check if watchlist exists
+    // Check if watchlist exists and belongs to user
     const existingWatchlist = await db
       .select()
       .from(watchlists)
-      .where(and(eq(watchlists.id, id), eq(watchlists.market, market as 'INDIA' | 'USA')))
+      .where(and(
+        eq(watchlists.id, id),
+        eq(watchlists.userId, userId),
+        eq(watchlists.market, market as 'INDIA' | 'USA')
+      ))
       .limit(1);
 
     if (existingWatchlist.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'Watchlist not found for this market',
+        error: 'Watchlist not found or you do not have permission to delete it',
       });
     }
 
@@ -263,12 +350,13 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
 /**
  * POST /api/watchlists/reorder
- * Reorder multiple watchlists
+ * Reorder multiple watchlists (user-scoped)
  * Body: { watchlistIds: string[] } - array of watchlist IDs in desired order
  * Query params: market (optional, defaults to INDIA), type (required)
  */
-router.post('/reorder', async (req: Request, res: Response) => {
+router.post('/reorder', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { watchlistIds } = req.body;
     const { market = 'INDIA', type } = req.query;
 
@@ -293,13 +381,14 @@ router.post('/reorder', async (req: Request, res: Response) => {
       });
     }
 
-    // Update order for each watchlist
+    // Update order for each watchlist (verify ownership)
     const updates = watchlistIds.map((watchlistId: string, index: number) =>
       db
         .update(watchlists)
         .set({ order: index, updatedAt: new Date() })
         .where(and(
           eq(watchlists.id, watchlistId),
+          eq(watchlists.userId, userId),
           eq(watchlists.market, market as 'INDIA' | 'USA'),
           eq(watchlists.type, type as 'INDEX' | 'STOCK' | 'MUTUAL_FUND')
         ))

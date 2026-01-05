@@ -2,9 +2,11 @@ import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import { watchlist, watchlists } from '../db/schema';
 import { eq, and, sql } from 'drizzle-orm';
+import { requireAuth, AuthRequest } from '../middleware/auth.middleware';
 import { SymbolSearchService } from '../services/symbol-search.service';
 import { CacheService } from '../services/cache.service';
 import { ApiFactoryService } from '../services/api-factory.service';
+import { config } from '../config';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -21,11 +23,12 @@ function validateMarket(market: any): market is 'INDIA' | 'USA' {
 
 /**
  * GET /api/watchlist
- * Get all symbols in watchlist
+ * Get all symbols in watchlist (user-scoped)
  * Query params: watchlistId (required), active (optional), market (optional, defaults to INDIA)
  */
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { watchlistId, active, market = 'INDIA' } = req.query;
 
     if (!watchlistId) {
@@ -42,17 +45,21 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Verify watchlist exists and belongs to the market
+    // Verify watchlist exists, belongs to the market, and belongs to the user
     const watchlistExists = await db
       .select()
       .from(watchlists)
-      .where(and(eq(watchlists.id, watchlistId as string), eq(watchlists.market, market as 'INDIA' | 'USA')))
+      .where(and(
+        eq(watchlists.id, watchlistId as string),
+        eq(watchlists.userId, userId),
+        eq(watchlists.market, market as 'INDIA' | 'USA')
+      ))
       .limit(1);
 
     if (watchlistExists.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'Watchlist not found for this market',
+        error: 'Watchlist not found or you do not have permission to access it',
       });
     }
 
@@ -62,7 +69,14 @@ router.get('/', async (req: Request, res: Response) => {
     ];
 
     if (active !== undefined) {
-      conditions.push(eq(watchlist.active, active === 'true'));
+      const activeFilter = active === 'true';
+      conditions.push(eq(watchlist.active, activeFilter));
+      logger.debug('Filtering watchlist items by active status', { 
+        watchlistId, 
+        userId, 
+        market, 
+        activeFilter 
+      });
     }
 
     const results = await db
@@ -70,6 +84,14 @@ router.get('/', async (req: Request, res: Response) => {
       .from(watchlist)
       .where(and(...conditions))
       .orderBy(watchlist.order);
+
+    logger.debug('Fetched watchlist items', { 
+      watchlistId, 
+      userId, 
+      market, 
+      itemCount: results.length,
+      activeFilter: active !== undefined ? (active === 'true') : 'all'
+    });
 
     res.json({
       success: true,
@@ -86,12 +108,13 @@ router.get('/', async (req: Request, res: Response) => {
 
 /**
  * POST /api/watchlist
- * Add a symbol to watchlist
+ * Add a symbol to watchlist (user-scoped)
  * Validates symbol exists before adding
  * Body: { symbol, type, watchlistId (required), market (required), exchange (optional, defaults to NSE for INDIA), name (optional) }
  */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { symbol, exchange, type, watchlistId, market = 'INDIA', name } = req.body;
 
     if (!symbol || !type || !watchlistId || !market) {
@@ -115,12 +138,13 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Verify watchlist exists, belongs to the market, and matches symbol type
+    // Verify watchlist exists, belongs to the market, belongs to the user, and matches symbol type
     const watchlistExists = await db
       .select()
       .from(watchlists)
       .where(and(
         eq(watchlists.id, watchlistId),
+        eq(watchlists.userId, userId),
         eq(watchlists.market, market as 'INDIA' | 'USA')
       ))
       .limit(1);
@@ -128,7 +152,7 @@ router.post('/', async (req: Request, res: Response) => {
     if (watchlistExists.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'Watchlist not found for this market',
+        error: 'Watchlist not found or you do not have permission to add symbols to it',
       });
     }
 
@@ -196,6 +220,38 @@ router.post('/', async (req: Request, res: Response) => {
           error: `Symbol "${symbol}" not found on USA market. Please check the symbol name.`,
         });
       }
+    }
+
+    // Check watchlist item limit (configurable via env)
+    // Count only active items for limit checking (inactive items don't count toward limit)
+    const MAX_ITEMS_PER_WATCHLIST = config.limits.maxItemsPerWatchlist;
+    const existingItems = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(watchlist)
+      .where(and(
+        eq(watchlist.watchlistId, watchlistId),
+        eq(watchlist.market, market as 'INDIA' | 'USA'),
+        eq(watchlist.active, true) // Only count active items toward limit
+      ));
+
+    const itemCount = Number(existingItems[0]?.count ?? 0);
+    if (itemCount >= MAX_ITEMS_PER_WATCHLIST) {
+      logger.warn('Watchlist limit reached', { 
+        watchlistId, 
+        userId, 
+        itemCount, 
+        maxLimit: MAX_ITEMS_PER_WATCHLIST,
+        market,
+        type 
+      });
+      return res.status(403).json({
+        success: false,
+        error: `This watchlist has reached the limit of ${MAX_ITEMS_PER_WATCHLIST} items. Please upgrade to Premium to add more items.`,
+        limitReached: true,
+        limitType: 'watchlist_item',
+        currentCount: itemCount,
+        maxLimit: MAX_ITEMS_PER_WATCHLIST,
+      });
     }
 
     // Check if symbol already exists in this watchlist
@@ -278,11 +334,12 @@ router.post('/', async (req: Request, res: Response) => {
 
 /**
  * DELETE /api/watchlist/:symbol
- * Remove a symbol from watchlist
+ * Remove a symbol from watchlist (user-scoped)
  * Query params: watchlistId (required), market (optional, defaults to INDIA)
  */
-router.delete('/:symbol', async (req: Request, res: Response) => {
+router.delete('/:symbol', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { symbol } = req.params;
     const { watchlistId, market = 'INDIA' } = req.query;
 
@@ -297,6 +354,24 @@ router.delete('/:symbol', async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         error: 'Market must be either INDIA or USA',
+      });
+    }
+
+    // Verify watchlist ownership before deleting
+    const watchlistExists = await db
+      .select()
+      .from(watchlists)
+      .where(and(
+        eq(watchlists.id, watchlistId as string),
+        eq(watchlists.userId, userId),
+        eq(watchlists.market, market as 'INDIA' | 'USA')
+      ))
+      .limit(1);
+
+    if (watchlistExists.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Watchlist not found or you do not have permission to modify it',
       });
     }
 
@@ -331,12 +406,13 @@ router.delete('/:symbol', async (req: Request, res: Response) => {
 
 /**
  * PATCH /api/watchlist/:symbol
- * Update watchlist entry (e.g., toggle active status, reorder)
+ * Update watchlist entry (e.g., toggle active status, reorder) - user-scoped
  * Query params: watchlistId (required), market (optional, defaults to INDIA)
  * Body: { active? (optional), order? (optional) }
  */
-router.patch('/:symbol', async (req: Request, res: Response) => {
+router.patch('/:symbol', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { symbol } = req.params;
     const { watchlistId, market = 'INDIA' } = req.query;
     const { active, order } = req.body;
@@ -359,6 +435,24 @@ router.patch('/:symbol', async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         error: 'At least one field (active or order) must be provided',
+      });
+    }
+
+    // Verify watchlist ownership
+    const watchlistExists = await db
+      .select()
+      .from(watchlists)
+      .where(and(
+        eq(watchlists.id, watchlistId as string),
+        eq(watchlists.userId, userId),
+        eq(watchlists.market, market as 'INDIA' | 'USA')
+      ))
+      .limit(1);
+
+    if (watchlistExists.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Watchlist not found or you do not have permission to modify it',
       });
     }
 
@@ -408,12 +502,13 @@ router.patch('/:symbol', async (req: Request, res: Response) => {
 
 /**
  * POST /api/watchlist/reorder
- * Reorder symbols within a watchlist
+ * Reorder symbols within a watchlist (user-scoped)
  * Query params: watchlistId (required), market (optional, defaults to INDIA)
  * Body: { symbolIds: string[] } - array of symbol IDs in desired order
  */
-router.post('/reorder', async (req: Request, res: Response) => {
+router.post('/reorder', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { symbolIds } = req.body;
     const { watchlistId, market = 'INDIA' } = req.query;
 
@@ -435,6 +530,24 @@ router.post('/reorder', async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         error: 'Market must be either INDIA or USA',
+      });
+    }
+
+    // Verify watchlist ownership
+    const watchlistExists = await db
+      .select()
+      .from(watchlists)
+      .where(and(
+        eq(watchlists.id, watchlistId as string),
+        eq(watchlists.userId, userId),
+        eq(watchlists.market, market as 'INDIA' | 'USA')
+      ))
+      .limit(1);
+
+    if (watchlistExists.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Watchlist not found or you do not have permission to modify it',
       });
     }
 

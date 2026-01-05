@@ -1,9 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
-import { watchlist, alerts, recoveryTracking } from '../db/schema';
+import { watchlist, alerts, recoveryTracking, watchlists, userAlerts } from '../db/schema';
 import { eq, and, gte, sql, desc, inArray } from 'drizzle-orm';
 import { CacheService } from '../services/cache.service';
 import { HistoricalPriceService } from '../services/historical-price.service';
+import { requireAuth, AuthRequest } from '../middleware/auth.middleware';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -12,11 +13,13 @@ const historicalPriceService = new HistoricalPriceService();
 
 /**
  * GET /api/market-overview/top-movers
- * Get top gainers and losers based on price changes
+ * Get top gainers and losers based on price changes from user's watchlists
  * Query params: market (optional, defaults to INDIA), timeframe (1D, 1W, 1M)
+ * Requires authentication
  */
-router.get('/top-movers', async (req: Request, res: Response) => {
+router.get('/top-movers', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { market = 'INDIA', timeframe = '1D' } = req.query;
 
     if (market !== 'INDIA' && market !== 'USA') {
@@ -41,11 +44,21 @@ router.get('/top-movers', async (req: Request, res: Response) => {
       });
     }
 
-    // Get active symbols
+    // Get active symbols from user's watchlists
     const activeSymbols = await db
-      .select()
+      .select({
+        symbol: watchlist.symbol,
+        name: watchlist.name,
+        type: watchlist.type,
+        exchange: watchlist.exchange,
+      })
       .from(watchlist)
-      .where(and(eq(watchlist.active, true), eq(watchlist.market, marketType)));
+      .innerJoin(watchlists, eq(watchlist.watchlistId, watchlists.id))
+      .where(and(
+        eq(watchlist.active, true),
+        eq(watchlist.market, marketType),
+        eq(watchlists.userId, userId)
+      ));
 
     // Calculate price changes
     const movers: Array<{
@@ -118,11 +131,13 @@ router.get('/top-movers', async (req: Request, res: Response) => {
 
 /**
  * GET /api/market-overview/trends
- * Get aggregate price trends over time
+ * Get aggregate price trends over time from user's watchlists
  * Query params: market (optional, defaults to INDIA), timeframe (1W, 1M, 3M, 6M, 1Y)
+ * Requires authentication
  */
-router.get('/trends', async (req: Request, res: Response) => {
+router.get('/trends', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { market = 'INDIA', timeframe = '1M' } = req.query;
 
     if (market !== 'INDIA' && market !== 'USA') {
@@ -134,11 +149,21 @@ router.get('/trends', async (req: Request, res: Response) => {
 
     const marketType = market as 'INDIA' | 'USA';
 
-    // Get active symbols
+    // Get active symbols from user's watchlists
     const activeSymbols = await db
-      .select()
+      .select({
+        symbol: watchlist.symbol,
+        name: watchlist.name,
+        type: watchlist.type,
+        exchange: watchlist.exchange,
+      })
       .from(watchlist)
-      .where(and(eq(watchlist.active, true), eq(watchlist.market, marketType)));
+      .innerJoin(watchlists, eq(watchlist.watchlistId, watchlists.id))
+      .where(and(
+        eq(watchlist.active, true),
+        eq(watchlist.market, marketType),
+        eq(watchlists.userId, userId)
+      ));
 
     if (activeSymbols.length === 0) {
       return res.json({
@@ -256,11 +281,13 @@ router.get('/trends', async (req: Request, res: Response) => {
 
 /**
  * GET /api/market-overview/health
- * Get market health indicators
+ * Get market health indicators based on user's alerts
  * Query params: market (optional, defaults to INDIA)
+ * Requires authentication
  */
-router.get('/health', async (req: Request, res: Response) => {
+router.get('/health', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { market = 'INDIA' } = req.query;
 
     if (market !== 'INDIA' && market !== 'USA') {
@@ -272,16 +299,18 @@ router.get('/health', async (req: Request, res: Response) => {
 
     const marketType = market as 'INDIA' | 'USA';
 
-    // Get alerts from last 7 days
+    // Get alerts from last 7 days for this user
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
     const recentAlerts = await db
       .select()
       .from(alerts)
+      .innerJoin(userAlerts, eq(alerts.id, userAlerts.alertId))
       .where(
         and(
           eq(alerts.market, marketType),
+          eq(userAlerts.userId, userId),
           gte(alerts.timestamp, sevenDaysAgo)
         )
       );
@@ -352,11 +381,13 @@ router.get('/health', async (req: Request, res: Response) => {
 
 /**
  * GET /api/market-overview/symbols-requiring-attention
- * Get symbols that require attention (approaching thresholds, recent alerts, high volatility)
+ * Get symbols that require attention from user's watchlists (approaching thresholds, recent alerts, high volatility)
  * Query params: market (optional, defaults to INDIA), type (optional: INDEX, STOCK, MUTUAL_FUND)
+ * Requires authentication
  */
-router.get('/symbols-requiring-attention', async (req: Request, res: Response) => {
+router.get('/symbols-requiring-attention', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { market = 'INDIA', type } = req.query;
 
     if (market !== 'INDIA' && market !== 'USA') {
@@ -369,15 +400,25 @@ router.get('/symbols-requiring-attention', async (req: Request, res: Response) =
     const marketType = market as 'INDIA' | 'USA';
     const symbolType = type as string | undefined;
 
-    // Apply filters for active symbols
-    let filters = [eq(watchlist.active, true), eq(watchlist.market, marketType)];
+    // Apply filters for active symbols from user's watchlists
+    let filters = [
+      eq(watchlist.active, true),
+      eq(watchlist.market, marketType),
+      eq(watchlists.userId, userId)
+    ];
     if (symbolType && ['INDEX', 'STOCK', 'MUTUAL_FUND'].includes(symbolType)) {
       filters.push(eq(watchlist.type, symbolType));
     }
 
     const activeSymbols = await db
-      .select()
+      .select({
+        symbol: watchlist.symbol,
+        name: watchlist.name,
+        type: watchlist.type,
+        exchange: watchlist.exchange,
+      })
       .from(watchlist)
+      .innerJoin(watchlists, eq(watchlist.watchlistId, watchlists.id))
       .where(and(...filters));
 
     if (activeSymbols.length === 0) {
@@ -396,16 +437,18 @@ router.get('/symbols-requiring-attention', async (req: Request, res: Response) =
       });
     }
 
-    // Get recent alerts (last 24 hours)
+    // Get recent alerts (last 24 hours) for this user
     const oneDayAgo = new Date();
     oneDayAgo.setHours(oneDayAgo.getHours() - 24);
 
     const recentAlerts = await db
       .select()
       .from(alerts)
+      .innerJoin(userAlerts, eq(alerts.id, userAlerts.alertId))
       .where(
         and(
           eq(alerts.market, marketType),
+          eq(userAlerts.userId, userId),
           gte(alerts.timestamp, oneDayAgo)
         )
       )

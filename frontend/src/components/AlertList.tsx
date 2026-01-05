@@ -56,7 +56,14 @@ const AlertList: React.FC<AlertListProps> = ({ alerts }) => {
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '8px' }}>
             <div>
-              <strong style={{ fontSize: '16px' }}>{alert.symbol}</strong>
+              {alert.type === 'MUTUAL_FUND' && alert.name ? (
+                <div>
+                  <strong style={{ fontSize: '16px' }}>{alert.name}</strong>
+                  <div style={{ fontSize: '12px', color: '#666', fontFamily: 'monospace' }}>{alert.symbol}</div>
+                </div>
+              ) : (
+                <strong style={{ fontSize: '16px' }}>{alert.symbol}</strong>
+              )}
               {alert.critical && (
                 <span
                   style={{

@@ -437,7 +437,14 @@ const Alerts: React.FC = () => {
                       <TableRow key={alert.id} className="hover:bg-accent">
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
-                            {alert.symbol}
+                            {alert.type === 'MUTUAL_FUND' && alert.name ? (
+                              <div className="flex flex-col">
+                                <span className="font-semibold">{alert.name}</span>
+                                <span className="text-xs text-muted-foreground font-mono">{alert.symbol}</span>
+                              </div>
+                            ) : (
+                              <span>{alert.symbol}</span>
+                            )}
                             {alert.critical && (
                               <Badge variant="destructive" className="text-xs">
                                 CRITICAL

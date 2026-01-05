@@ -38,5 +38,24 @@ export const config = {
     alertHours: 1,
   },
   batchSize: 20,
+  supabase: {
+    url: process.env.SUPABASE_URL ?? '',
+    anonKey: process.env.SUPABASE_ANON_KEY ?? '',
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
+  },
+  limits: {
+    maxWatchlistsPerType: parseInt(process.env.MAX_WATCHLISTS_PER_TYPE ?? '4', 10),
+    maxItemsPerWatchlist: parseInt(process.env.MAX_ITEMS_PER_WATCHLIST ?? '8', 10),
+  },
+  rateLimit: {
+    global: {
+      windowMs: parseInt(process.env.RATE_LIMIT_GLOBAL_WINDOW_MS ?? '900000', 10), // 15 minutes default
+      maxRequests: parseInt(process.env.RATE_LIMIT_GLOBAL_MAX ?? '100', 10), // 100 requests per 15 minutes default
+    },
+    auth: {
+      windowMs: parseInt(process.env.RATE_LIMIT_AUTH_WINDOW_MS ?? '900000', 10), // 15 minutes default
+      maxRequests: parseInt(process.env.RATE_LIMIT_AUTH_MAX ?? '5', 10), // 5 requests per 15 minutes default
+    },
+  },
 } as const;
 

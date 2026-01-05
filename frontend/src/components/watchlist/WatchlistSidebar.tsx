@@ -8,10 +8,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { InlineEdit } from './InlineEdit';
-import { useWatchlists, useCreateWatchlist, useUpdateWatchlistMeta, useDeleteWatchlist, useReorderWatchlists } from '@/hooks/usePrices';
+import { useWatchlists, useCreateWatchlist, useUpdateWatchlistMeta, useDeleteWatchlist, useReorderWatchlists, useWatchlistLimits } from '@/hooks/usePrices';
 import { useWatchlistContext } from '@/contexts/WatchlistContext';
 import { useToast } from '@/hooks/use-toast';
 import { Watchlist } from '@/services/api';
+import { UpgradeModal } from '@/components/upgrade/UpgradeModal';
 
 interface SortableWatchlistItemProps {
   watchlist: Watchlist;
@@ -115,6 +116,7 @@ interface WatchlistSidebarProps {
 
 export function WatchlistSidebar({ type }: WatchlistSidebarProps) {
   const { data: watchlists = [], isLoading } = useWatchlists(type);
+  const { data: limits } = useWatchlistLimits();
   const { selectedWatchlistId, setSelectedWatchlistId } = useWatchlistContext();
   const createMutation = useCreateWatchlist();
   const deleteMutation = useDeleteWatchlist();
@@ -171,6 +173,8 @@ export function WatchlistSidebar({ type }: WatchlistSidebarProps) {
     }
   };
 
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+
   const handleCreate = async () => {
     if (!newWatchlistName.trim()) {
       toast({
@@ -178,6 +182,13 @@ export function WatchlistSidebar({ type }: WatchlistSidebarProps) {
         title: 'Invalid Name',
         description: 'Watchlist name cannot be empty',
       });
+      return;
+    }
+
+    // Check limit before creating (configurable via env)
+    const MAX_WATCHLISTS = limits?.maxWatchlistsPerType ?? 4;
+    if (watchlists.length >= MAX_WATCHLISTS) {
+      setUpgradeModalOpen(true);
       return;
     }
 
@@ -192,11 +203,16 @@ export function WatchlistSidebar({ type }: WatchlistSidebarProps) {
         description: `"${newWatchlist.name}" has been created`,
       });
     } catch (error: any) {
+      // Check if it's a limit error
+      if (error.response?.data?.limitReached) {
+        setUpgradeModalOpen(true);
+      } else {
       toast({
         variant: 'destructive',
         title: 'Failed to Create',
         description: error.response?.data?.error ?? 'Failed to create watchlist',
       });
+      }
     }
   };
 
@@ -339,6 +355,13 @@ export function WatchlistSidebar({ type }: WatchlistSidebarProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <UpgradeModal
+        open={upgradeModalOpen}
+        onOpenChange={setUpgradeModalOpen}
+        limitType="watchlist"
+        currentCount={watchlists.length}
+        maxLimit={limits?.maxWatchlistsPerType ?? 4}
+      />
     </div>
   );
 }

@@ -1,13 +1,45 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
+import { supabase } from '../lib/supabase';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+// Use Vite proxy in development (proxy handles /api prefix), direct URL in production
+// In dev: use empty string so requests like '/api/watchlists' go to proxy -> http://localhost:3000/api/watchlists
+// In prod: use full URL http://localhost:3000 (routes already include /api prefix)
+const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'http://localhost:3000');
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true, // Include credentials for CORS
 });
+
+// Add auth token to all requests
+apiClient.interceptors.request.use(
+  async (config) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      config.headers.Authorization = `Bearer ${session.access_token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Handle 401 errors - redirect to login
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError) => {
+    if (error.response?.status === 401) {
+      // Clear session and redirect to login
+      await supabase.auth.signOut();
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
 
 export interface Alert {
   id: string;
@@ -21,6 +53,8 @@ export interface Alert {
   timestamp: Date;
   notified: boolean;
   critical: boolean;
+  name?: string | null; // Display name (especially for mutual funds)
+  type?: 'INDEX' | 'STOCK' | 'MUTUAL_FUND' | null; // Symbol type
 }
 
 export interface Watchlist {
@@ -104,6 +138,18 @@ export interface SymbolRequiringAttention {
 }
 
 export const api = {
+  get: async (url: string, config?: any): Promise<any> => {
+    return apiClient.get(url, config);
+  },
+  post: async (url: string, data?: any, config?: any): Promise<any> => {
+    return apiClient.post(url, data, config);
+  },
+  patch: async (url: string, data?: any, config?: any): Promise<any> => {
+    return apiClient.patch(url, data, config);
+  },
+  delete: async (url: string, config?: any): Promise<any> => {
+    return apiClient.delete(url, config);
+  },
   alerts: {
     getAll: async (params?: {
       symbol?: string;
@@ -132,6 +178,10 @@ export const api = {
     },
   },
   watchlists: {
+    getLimits: async (): Promise<{ success: boolean; data: { maxWatchlistsPerType: number; maxItemsPerWatchlist: number } }> => {
+      const response = await apiClient.get('/api/watchlists/limits');
+      return response.data;
+    },
     getAll: async (type: 'INDEX' | 'STOCK' | 'MUTUAL_FUND', market: 'INDIA' | 'USA' = 'INDIA'): Promise<{ success: boolean; data: Watchlist[] }> => {
       const response = await apiClient.get('/api/watchlists', { params: { type, market } });
       return response.data;
@@ -154,10 +204,12 @@ export const api = {
     },
   },
   watchlist: {
-    getAll: async (watchlistId: string, active?: boolean, market: 'INDIA' | 'USA' = 'INDIA'): Promise<{ success: boolean; data: WatchlistItem[] }> => {
+    getAll: async (watchlistId: string, activeOnly?: boolean, market: 'INDIA' | 'USA' = 'INDIA'): Promise<{ success: boolean; data: WatchlistItem[] }> => {
       const params: any = { watchlistId, market };
-      if (active !== undefined) {
-        params.active = active.toString();
+      // Only pass active parameter when we want to filter for active items only
+      // When activeOnly is false or undefined, don't pass the parameter to get all items
+      if (activeOnly === true) {
+        params.active = 'true';
       }
       const response = await apiClient.get('/api/watchlist', { params });
       return response.data;

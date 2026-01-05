@@ -116,12 +116,14 @@ export class AlertDetectionService {
   /**
    * Process alerts for all symbols with current prices
    *
-   * New Logic:
+   * Symbol-First Architecture:
    * 1. Detect all potential alerts for each symbol
    * 2. Group by symbol and find HIGHEST threshold
    * 3. Check cooldown using new daily + 5% further drop logic
-   * 4. Only send alerts that pass cooldown check
-   * 5. Store alert tracking for future comparisons
+   * 4. Only return alerts that pass cooldown check
+   * 5. Update alert tracking for future comparisons
+   *
+   * Note: Alert storage and user linking happens in the caller (cron job)
    *
    * @param prices - Map of symbol to current price
    * @param market - Market type (INDIA or USA), defaults to INDIA
@@ -169,10 +171,7 @@ export class AlertDetectionService {
           trigger.alertReason = reason;
           alertsToSend.push(trigger);
 
-          // Step 4: Store alert in database
-          await this.storeAlert(trigger);
-
-          // Step 5: Update alert tracking
+          // Update alert tracking (symbol-level, no userId)
           await setAlertTracking(symbol, marketValue, {
             lastAlertPrice: trigger.currentPrice,
             lastAlertDate: new Date().toLocaleDateString('en-CA', {
@@ -257,15 +256,16 @@ export class AlertDetectionService {
   }
 
   /**
-   * Store alert in database
+   * Store alert in database (symbol-level, no userId)
    * @param trigger - Alert trigger data (must include market field)
+   * @returns Alert ID of the created alert
    */
-  private async storeAlert(trigger: AlertTrigger): Promise<void> {
+  async storeAlert(trigger: AlertTrigger): Promise<string> {
     try {
       const isCritical = trigger.threshold >= 20;
       const market = trigger.market ?? 'INDIA'; // Default to INDIA for backward compatibility
       
-      await db.insert(alerts).values({
+      const result = await db.insert(alerts).values({
         symbol: trigger.symbol,
         market,
         dropPercentage: trigger.dropPercentage.toFixed(2),
@@ -274,26 +274,16 @@ export class AlertDetectionService {
         price: trigger.currentPrice.toFixed(2),
         historicalPrice: trigger.historicalPrice.toFixed(2),
         critical: isCritical,
-        notified: false,
-      });
+      }).returning({ id: alerts.id });
+
+      if (result.length === 0 || !result[0]?.id) {
+        throw new Error('Failed to create alert - no ID returned');
+      }
+
+      return result[0].id;
     } catch (error) {
       logger.error('Error storing alert', { error, trigger });
       throw error;
-    }
-  }
-
-  /**
-   * Mark alert as notified
-   * @param alertId - Alert ID
-   */
-  async markAlertAsNotified(alertId: string): Promise<void> {
-    try {
-      await db
-        .update(alerts)
-        .set({ notified: true })
-        .where(eq(alerts.id, alertId));
-    } catch (error) {
-      logger.error(`Error marking alert as notified`, { alertId, error });
     }
   }
 }

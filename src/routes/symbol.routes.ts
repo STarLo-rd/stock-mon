@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
-import { alerts, watchlist } from '../db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { alerts, watchlist, userAlerts } from '../db/schema';
+import { eq, desc, and } from 'drizzle-orm';
+import { requireAuth, AuthRequest } from '../middleware/auth.middleware';
 import { CacheService } from '../services/cache.service';
 import { SymbolSearchService } from '../services/symbol-search.service';
 import { NSEChartService } from '../services/nse-chart.service';
@@ -231,17 +232,38 @@ router.get('/:symbol/prices', async (req: Request, res: Response) => {
 
 /**
  * GET /api/symbols/:symbol/alerts
- * Get alerts for a specific symbol
+ * Get alerts for a specific symbol (user-scoped)
+ * Requires authentication - only returns alerts for the authenticated user
  */
-router.get('/:symbol/alerts', async (req: Request, res: Response) => {
+router.get('/:symbol/alerts', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { symbol } = req.params;
     const { limit = '50' } = req.query;
 
+    // Join with user_alerts to only return alerts for this user
     const results = await db
-      .select()
+      .select({
+        id: alerts.id,
+        symbol: alerts.symbol,
+        market: alerts.market,
+        dropPercentage: alerts.dropPercentage,
+        threshold: alerts.threshold,
+        timeframe: alerts.timeframe,
+        price: alerts.price,
+        historicalPrice: alerts.historicalPrice,
+        timestamp: alerts.timestamp,
+        critical: alerts.critical,
+        notified: userAlerts.notified,
+        read: userAlerts.read,
+        dismissed: userAlerts.dismissed,
+      })
       .from(alerts)
-      .where(eq(alerts.symbol, symbol))
+      .innerJoin(userAlerts, eq(alerts.id, userAlerts.alertId))
+      .where(and(
+        eq(alerts.symbol, symbol),
+        eq(userAlerts.userId, userId)
+      ))
       .orderBy(desc(alerts.timestamp))
       .limit(parseInt(limit as string, 10));
 
@@ -250,7 +272,7 @@ router.get('/:symbol/alerts', async (req: Request, res: Response) => {
       data: results,
     });
   } catch (error) {
-    logger.error('Error fetching symbol alerts', { error, symbol: req.params.symbol });
+    logger.error('Error fetching symbol alerts', { error, symbol: req.params.symbol, userId: req.userId });
     res.status(500).json({
       success: false,
       error: 'Failed to fetch symbol alerts',

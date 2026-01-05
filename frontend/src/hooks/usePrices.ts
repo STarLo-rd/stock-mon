@@ -188,8 +188,11 @@ export function useWatchlists(type: 'INDEX' | 'STOCK' | 'MUTUAL_FUND') {
       const response = await api.watchlists.getAll(type, market);
       return response.data;
     },
-    staleTime: 60000,      // Fresh for 1 minute (changes infrequently)
-    refetchInterval: 60000, // Refetch every minute
+    staleTime: 5 * 60 * 1000,      // Fresh for 5 minutes (changes infrequently)
+    refetchOnWindowFocus: false,   // Don't refetch on window focus during onboarding
+    refetchOnMount: false,          // Don't refetch on component mount if data is fresh
+    refetchOnReconnect: false,      // Don't refetch on reconnect
+    retry: 2,                       // Retry failed requests twice
   });
 }
 
@@ -207,14 +210,26 @@ export function useWatchlist(watchlistId: string | null, activeOnly?: boolean) {
       return response.data;
     },
     enabled: !!watchlistId,
-    staleTime: 60000,      // Fresh for 1 minute (changes infrequently)
-    refetchInterval: 60000, // Refetch every minute
+    staleTime: 5 * 60 * 1000,      // Fresh for 5 minutes (changes infrequently)
+    refetchOnWindowFocus: false,   // Don't refetch on window focus during onboarding
+    retry: 2,                       // Retry failed requests twice
   });
 }
 
 /**
  * Hook to create a new watchlist
  */
+export function useWatchlistLimits() {
+  return useQuery({
+    queryKey: ['watchlist-limits'],
+    queryFn: async () => {
+      const response = await api.watchlists.getLimits();
+      return response.data;
+    },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+}
+
 export function useCreateWatchlist() {
   const queryClient = useQueryClient();
   const { market } = useMarket();

@@ -9,13 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Plus, Eye, Trash2, Power, TrendingUp, Building2, BarChart3 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useWatchlist, useCurrentPrices, useAddToWatchlist, useRemoveFromWatchlist, useUpdateWatchlistItem, useWatchlists } from '../hooks/usePrices';
+import { useWatchlist, useCurrentPrices, useAddToWatchlist, useRemoveFromWatchlist, useUpdateWatchlistItem, useWatchlists, useWatchlistLimits } from '../hooks/usePrices';
 import { Autocomplete, AutocompleteOption } from '@/components/ui/autocomplete';
 import { useSymbolSearch } from '../hooks/useSymbolSearch';
 import { useToast } from '../hooks/use-toast';
 import { useWatchlistContext } from '../contexts/WatchlistContext';
 import { WatchlistSidebar } from '../components/watchlist/WatchlistSidebar';
 import { api } from '../services/api';
+import { UpgradeModal } from '../components/upgrade/UpgradeModal';
 
 /**
  * Watchlist Page - Type-Specific Watchlists
@@ -31,7 +32,7 @@ const Watchlist: React.FC = () => {
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const navigate = useNavigate();
 
-  const { selectedType, setSelectedType, selectedWatchlistId } = useWatchlistContext();
+  const { selectedType, setSelectedType, selectedWatchlistId, setSelectedWatchlistId } = useWatchlistContext();
 
   // Get watchlists for current type (used for display name)
   const { data: watchlists = [] } = useWatchlists(selectedType);
@@ -39,6 +40,7 @@ const Watchlist: React.FC = () => {
   // Use React Query hooks
   const { data: watchlist = [], isLoading: watchlistLoading } = useWatchlist(selectedWatchlistId);
   const { data: pricesData = [], isLoading: pricesLoading } = useCurrentPrices();
+  const { data: limits } = useWatchlistLimits();
   
   // Convert prices array to Map for easy lookup
   const prices = useMemo(() => {
@@ -85,6 +87,7 @@ const Watchlist: React.FC = () => {
   const [addError, setAddError] = useState<string | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
 
   const handleSymbolSelect = (option: AutocompleteOption) => {
     // For mutual funds, display the name but keep the symbol (scheme code) for submission
@@ -114,6 +117,13 @@ const Watchlist: React.FC = () => {
     
     if (!symbolToSubmit.trim()) {
       setAddError('Please enter a symbol');
+      return;
+    }
+
+    // Check limit before adding (configurable via env)
+    const MAX_ITEMS = limits?.maxItemsPerWatchlist ?? 8;
+    if (watchlist.length >= MAX_ITEMS) {
+      setUpgradeModalOpen(true);
       return;
     }
 
@@ -157,6 +167,10 @@ const Watchlist: React.FC = () => {
       setDialogOpen(false);
     } catch (error: any) {
       console.error('Failed to add symbol:', error);
+      // Check if it's a limit error
+      if (error.response?.data?.limitReached) {
+        setUpgradeModalOpen(true);
+      } else {
       const errorMessage = error.response?.data?.error ?? 'Failed to add symbol';
       setAddError(errorMessage);
       
@@ -165,6 +179,7 @@ const Watchlist: React.FC = () => {
         title: 'Failed to Add Symbol',
         description: errorMessage,
       });
+      }
     } finally {
       setIsValidating(false);
     }
@@ -275,7 +290,7 @@ const Watchlist: React.FC = () => {
               <CardContent className="pt-6">
                 <Select
                   value={selectedWatchlistId ?? ''}
-                  onValueChange={(value) => setSelectedWatchlistId(value)}
+                  onValueChange={(value) => setSelectedWatchlistId(value || null)}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a watchlist">
@@ -569,6 +584,13 @@ const Watchlist: React.FC = () => {
           )}
         </div>
       </div>
+      <UpgradeModal
+        open={upgradeModalOpen}
+        onOpenChange={setUpgradeModalOpen}
+        limitType="watchlist_item"
+        currentCount={watchlist.length}
+        maxLimit={limits?.maxItemsPerWatchlist ?? 8}
+      />
     </div>
   );
 };

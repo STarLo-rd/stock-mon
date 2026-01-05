@@ -10,10 +10,56 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
+  TooltipProps,
 } from 'recharts';
 import { useMarketTrends } from '@/hooks/usePrices';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+/**
+ * Custom tooltip component with investment advice for market trends
+ */
+interface CustomTrendsTooltipProps extends TooltipProps<number, string> {
+  medianIndex: number | null;
+}
+
+const CustomTrendsTooltip: React.FC<CustomTrendsTooltipProps> = ({ active, payload, label, medianIndex }) => {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+
+  const indexValue = payload[0]?.value as number;
+  if (indexValue === undefined || medianIndex === null) {
+    return (
+      <div className="bg-white border border-gray-300 rounded p-2 shadow-lg">
+        <p className="text-sm font-medium">{`Date: ${label}`}</p>
+        <p className="text-sm">{`Index: ${indexValue?.toFixed(2) ?? 'N/A'}`}</p>
+      </div>
+    );
+  }
+
+  const isNearMedian = Math.abs(indexValue - medianIndex) / medianIndex < 0.05;
+  const isBelowMedian = indexValue <= medianIndex;
+
+  let investmentAdvice = '';
+  if (isBelowMedian) {
+    investmentAdvice = '💡 Good entry point: Investing at or below median can yield higher returns';
+  } else if (isNearMedian) {
+    investmentAdvice = '💡 Consider investing: Price near median offers balanced opportunity';
+  }
+
+  return (
+    <div className="bg-white border border-gray-300 rounded p-2 shadow-lg max-w-[220px]">
+      <p className="text-sm font-medium mb-1">{`Date: ${label}`}</p>
+      <p className="text-sm font-semibold mb-1">{`Index: ${indexValue.toFixed(2)}`}</p>
+      {investmentAdvice && (
+        <p className="text-xs text-green-600 mt-2 pt-2 border-t border-gray-200">
+          {investmentAdvice}
+        </p>
+      )}
+    </div>
+  );
+};
 
 /**
  * Market Trends Chart Component
@@ -139,13 +185,7 @@ export const MarketTrendsChart: React.FC = () => {
                       tick={{ fontSize: 10 }}
                       tickFormatter={(value) => value.toFixed(0)}
                     />
-                    <Tooltip
-                      formatter={(value: number | undefined) => {
-                        if (value === undefined) return ['', ''];
-                        return [value.toFixed(2), 'Index'];
-                      }}
-                      labelFormatter={(label) => `Date: ${label}`}
-                    />
+                    <Tooltip content={<CustomTrendsTooltip medianIndex={medianIndex} />} />
                     {medianIndex !== null && (
                       <ReferenceLine
                         y={medianIndex}
@@ -153,7 +193,7 @@ export const MarketTrendsChart: React.FC = () => {
                         strokeDasharray="5 5"
                         strokeWidth={1.5}
                         label={{
-                          value: `Median: ${medianIndex.toFixed(2)}`,
+                          value: `Median: ${medianIndex.toFixed(2)} 💡`,
                           position: 'right',
                           fill: '#666',
                           fontSize: 11,

@@ -1,9 +1,10 @@
 import { pgTable, text, timestamp, decimal, integer, boolean, uuid, unique } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 
 // Watchlists table - stores watchlist metadata
 export const watchlists = pgTable('watchlists', {
   id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull(), // Supabase user ID
   name: text('name').notNull(),
   order: integer('order').notNull().default(0), // For drag-and-drop ordering
   market: text('market').notNull().default('INDIA'), // 'INDIA' or 'USA'
@@ -11,9 +12,9 @@ export const watchlists = pgTable('watchlists', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => ({
-  // Unique constraint: one watchlist name per type per market
-  uniqueNameTypeMarket: unique('unique_name_type_market')
-    .on(table.name, table.type, table.market),
+  // Unique constraint: one watchlist name per type per market per user
+  uniqueNameTypeMarketUser: unique('unique_name_type_market_user')
+    .on(table.name, table.type, table.market, table.userId),
 }));
 
 // Watchlist items table - stores symbols within watchlists
@@ -60,9 +61,22 @@ export const alerts = pgTable('alerts', {
   price: decimal('price', { precision: 10, scale: 2 }).notNull(),
   historicalPrice: decimal('historical_price', { precision: 10, scale: 2 }).notNull(),
   timestamp: timestamp('timestamp').defaultNow().notNull(),
-  notified: boolean('notified').notNull().default(false),
   critical: boolean('critical').notNull().default(false),
 });
+
+// User-alert junction table - links users to symbol-level alerts
+export const userAlerts = pgTable('user_alerts', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull(), // Supabase user ID
+  alertId: uuid('alert_id').notNull().references(() => alerts.id),
+  notified: boolean('notified').notNull().default(false),
+  read: boolean('read').notNull().default(false),
+  dismissed: boolean('dismissed').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  // Unique constraint: one user_alert per user per alert
+  uniqueUserAlert: unique('unique_user_alert').on(table.userId, table.alertId),
+}));
 
 export const recoveryTracking = pgTable('recovery_tracking', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -90,11 +104,19 @@ export const watchlistRelations = relations(watchlist, ({ one }) => ({
 
 export const alertsRelations = relations(alerts, ({ many }) => ({
   recoveryTracking: many(recoveryTracking),
+  userAlerts: many(userAlerts),
 }));
 
 export const recoveryTrackingRelations = relations(recoveryTracking, ({ one }) => ({
   alert: one(alerts, {
     fields: [recoveryTracking.alertId],
+    references: [alerts.id],
+  }),
+}));
+
+export const userAlertsRelations = relations(userAlerts, ({ one }) => ({
+  alert: one(alerts, {
+    fields: [userAlerts.alertId],
     references: [alerts.id],
   }),
 }));

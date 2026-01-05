@@ -10,12 +10,58 @@ import {
   Area,
   AreaChart,
   ReferenceLine,
+  TooltipProps,
 } from 'recharts';
 import { useSymbolPrices } from '../../hooks/usePrices';
 
 interface PriceChartProps {
   symbol: string;
 }
+
+/**
+ * Custom tooltip component with investment advice
+ */
+interface CustomTooltipProps extends TooltipProps<number, string> {
+  medianPrice: number | null;
+}
+
+const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label, medianPrice }) => {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+
+  const price = payload[0]?.value as number;
+  if (price === undefined || medianPrice === null) {
+    return (
+      <div className="bg-white border border-gray-300 rounded p-2 shadow-lg">
+        <p className="text-sm font-medium">{`Date: ${label}`}</p>
+        <p className="text-sm">{`Price: ₹${price?.toFixed(2) ?? 'N/A'}`}</p>
+      </div>
+    );
+  }
+
+  const isNearMedian = Math.abs(price - medianPrice) / medianPrice < 0.05;
+  const isBelowMedian = price <= medianPrice;
+
+  let investmentAdvice = '';
+  if (isBelowMedian) {
+    investmentAdvice = '💡 Good entry point: Investing at or below median can yield higher returns';
+  } else if (isNearMedian) {
+    investmentAdvice = '💡 Consider investing: Price near median offers balanced opportunity';
+  }
+
+  return (
+    <div className="bg-white border border-gray-300 rounded p-2 shadow-lg max-w-[220px]">
+      <p className="text-sm font-medium mb-1">{`Date: ${label}`}</p>
+      <p className="text-sm font-semibold mb-1">{`Price: ₹${price.toFixed(2)}`}</p>
+      {investmentAdvice && (
+        <p className="text-xs text-green-600 mt-2 pt-2 border-t border-gray-200">
+          {investmentAdvice}
+        </p>
+      )}
+    </div>
+  );
+};
 
 /**
  * Price Chart Component - Optimized with React Query
@@ -119,13 +165,7 @@ export const PriceChart: React.FC<PriceChartProps> = ({ symbol }) => {
                     tick={{ fontSize: 12 }}
                     tickFormatter={(value) => `₹${value.toFixed(0)}`}
                   />
-                  <Tooltip
-                    formatter={(value: number | undefined) => {
-                      if (value === undefined) return ['', ''];
-                      return [`₹${value.toFixed(2)}`, 'Price'];
-                    }}
-                    labelFormatter={(label) => `Date: ${label}`}
-                  />
+                  <Tooltip content={<CustomTooltip medianPrice={medianPrice} />} />
                   {medianPrice !== null && (
                     <ReferenceLine
                       y={medianPrice}
@@ -133,7 +173,7 @@ export const PriceChart: React.FC<PriceChartProps> = ({ symbol }) => {
                       strokeDasharray="5 5"
                       strokeWidth={1.5}
                       label={{
-                        value: `Median: ₹${medianPrice.toFixed(2)}`,
+                        value: `Median: ₹${medianPrice.toFixed(2)} 💡`,
                         position: 'right',
                         fill: '#666',
                         fontSize: 11,

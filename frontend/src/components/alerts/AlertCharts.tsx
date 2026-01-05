@@ -194,7 +194,7 @@ export const AlertCharts: React.FC<AlertChartsProps> = ({ alerts }) => {
                   cx="50%"
                   cy="50%"
                   labelLine={false}
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                  label={(entry: any) => `${entry.name}: ${((entry.percent ?? 0) * 100).toFixed(0)}%`}
                   outerRadius={70}
                   fill="#8884d8"
                   dataKey="value"

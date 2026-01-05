@@ -4,8 +4,8 @@ import { AlertTrigger, RecoveryAlert, AlertDetectionService } from './alert-dete
 import { formatAlertMessage, formatAlertSubject, formatRecoveryMessage, formatNewRecoveryMessage } from '../templates/alert.templates';
 import { config } from '../config';
 import { db } from '../db';
-import { alerts } from '../db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { alerts, userAlerts } from '../db/schema';
+import { eq, desc, and, inArray } from 'drizzle-orm';
 import logger from '../utils/logger';
 
 /**
@@ -21,10 +21,16 @@ export class NotificationService {
   }
 
   /**
-   * Send alert notification based on threshold
+   * Send alert notification based on threshold to specific users
    * @param trigger - Alert trigger data
+   * @param alertId - Alert ID (symbol-level alert)
+   * @param userIds - Array of user IDs to notify
    */
-  async sendAlert(trigger: AlertTrigger): Promise<void> {
+  async sendAlert(trigger: AlertTrigger, alertId: string, userIds: string[]): Promise<void> {
+    if (userIds.length === 0) {
+      return; // No users to notify
+    }
+
     const message = formatAlertMessage(trigger);
     const subject = formatAlertSubject(trigger);
 
@@ -58,33 +64,20 @@ export class NotificationService {
       notificationSent = results.some((r) => r);
     }
 
-    // Mark alert as notified if notification was sent successfully
-    if (notificationSent) {
+    // Mark user_alerts as notified if notification was sent successfully
+    if (notificationSent && userIds.length > 0) {
       try {
-        // Find the most recent alert for this symbol matching the trigger criteria
-        const alertRecords = await db
-          .select()
-          .from(alerts)
-          .where(eq(alerts.symbol, trigger.symbol))
-          .orderBy(desc(alerts.timestamp))
-          .limit(1);
-
-        if (alertRecords.length > 0) {
-          const alert = alertRecords[0];
-          // Verify it matches the trigger (same threshold and timeframe)
-          if (
-            alert.threshold === trigger.threshold &&
-            alert.timeframe === trigger.timeframe &&
-            !alert.notified
-          ) {
-            await db
-              .update(alerts)
-              .set({ notified: true })
-              .where(eq(alerts.id, alert.id));
-          }
-        }
+        await db
+          .update(userAlerts)
+          .set({ notified: true })
+          .where(
+            and(
+              eq(userAlerts.alertId, alertId),
+              inArray(userAlerts.userId, userIds)
+            )
+          );
       } catch (error) {
-        logger.error('Error marking alert as notified', { error, alertId: alert.id });
+        logger.error('Error marking user alerts as notified', { error, alertId, userIdCount: userIds.length });
       }
     }
   }
@@ -117,11 +110,24 @@ export class NotificationService {
   }
 
   /**
-   * Send multiple alerts
-   * @param triggers - Array of alert triggers
+   * Send multiple alerts to users
+   * @param triggers - Array of alert triggers with alertId
+   * @param userIds - Array of user IDs to notify (applies to all triggers)
    */
-  async sendAlerts(triggers: AlertTrigger[]): Promise<void> {
-    const promises = triggers.map((trigger) => this.sendAlert(trigger));
+  async sendAlerts(triggers: Array<AlertTrigger & { alertId: string }>, userIds: string[]): Promise<void> {
+    if (triggers.length === 0 || userIds.length === 0) {
+      return;
+    }
+
+    // Send alerts directly using provided alertIds (no DB lookup needed)
+    const promises = triggers.map(async (trigger) => {
+      try {
+        await this.sendAlert(trigger, trigger.alertId, userIds);
+      } catch (error) {
+        logger.error('Error sending alert', { error, trigger });
+      }
+    });
+
     await Promise.all(promises);
   }
 

@@ -29,6 +29,43 @@ MARKET_OPEN_HOUR=9
 MARKET_OPEN_MINUTE=15
 MARKET_CLOSE_HOUR=15
 MARKET_CLOSE_MINUTE=30
+
+# Supabase Authentication
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your_anon_key_here
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+
+# Frontend URL (for OAuth redirects)
+FRONTEND_URL=http://localhost:5173
+
+# Subscription Limits (Free Tier)
+MAX_WATCHLISTS_PER_TYPE=4
+MAX_ITEMS_PER_WATCHLIST=8
+
+# Rate Limiting
+# Global rate limit: requests per window (applies to all routes)
+RATE_LIMIT_GLOBAL_WINDOW_MS=900000
+RATE_LIMIT_GLOBAL_MAX=100
+
+# Auth rate limit: authentication attempts per window (stricter for security)
+RATE_LIMIT_AUTH_WINDOW_MS=900000
+RATE_LIMIT_AUTH_MAX=5
+
+# Trust Proxy (set to 'true' if behind reverse proxy/load balancer for accurate IP addresses)
+TRUST_PROXY=false
+```
+
+## Frontend Environment Variables
+
+Create a `frontend/.env` file:
+
+```env
+# API URL
+VITE_API_URL=http://localhost:3000
+
+# Supabase Authentication
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your_anon_key_here
 ```
 
 ## Setup Instructions
@@ -51,4 +88,21 @@ MARKET_CLOSE_MINUTE=30
 2. Go to Google Account Settings > Security > App Passwords
 3. Generate an app password for "Mail"
 4. Use this app password (not your regular password) in `SMTP_PASS`
+
+### Getting Supabase Credentials
+
+1. Create a free account at [supabase.com](https://supabase.com)
+2. Create a new project
+3. Go to Project Settings > API
+4. Copy the following:
+   - **Project URL** → `SUPABASE_URL`
+   - **anon/public key** → `SUPABASE_ANON_KEY` (backend and frontend)
+   - **service_role key** → `SUPABASE_SERVICE_ROLE_KEY` (backend only, keep secret!)
+5. Go to Authentication > Providers
+6. Enable Email/Password authentication
+7. Enable Google OAuth provider (optional but recommended)
+8. Configure redirect URLs:
+   - `http://localhost:5173/auth/callback` (development)
+   - `http://localhost:5173/reset-password` (password reset)
+   - Add your production URLs when deploying
 

@@ -1,11 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
-import { watchlist, alerts } from '../db/schema';
-import { eq, count, sql } from 'drizzle-orm';
+import { watchlist, alerts, watchlists, userAlerts } from '../db/schema';
+import { eq, count, sql, and } from 'drizzle-orm';
 import { isMarketOpen } from '../utils/market-hours.util';
 import { redisClient } from '../utils/redis.client';
 import { CacheService } from '../services/cache.service';
 import { getPriceUpdaterInstance } from '../services/price-updater.service';
+import { requireAuth, AuthRequest } from '../middleware/auth.middleware';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -13,11 +14,13 @@ const cache = new CacheService();
 
 /**
  * GET /api/status
- * Get system health and statistics
+ * Get system health and statistics for the authenticated user
  * Query params: market (optional, defaults to INDIA)
+ * Requires authentication
  */
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const userId = req.userId!;
     const { market = 'INDIA' } = req.query;
 
     if (market && market !== 'INDIA' && market !== 'USA') {
@@ -29,16 +32,21 @@ router.get('/', async (req: Request, res: Response) => {
 
     const marketType = market as 'INDIA' | 'USA';
 
-    // Get watchlist stats filtered by market
+    // Get watchlist stats filtered by user and market
+    // Join watchlist with watchlists to filter by userId
     const watchlistStats = await db
       .select({
         total: count(),
         active: sql<number>`COUNT(CASE WHEN ${watchlist.active} = true THEN 1 END)`,
       })
       .from(watchlist)
-      .where(eq(watchlist.market, marketType));
+      .innerJoin(watchlists, eq(watchlist.watchlistId, watchlists.id))
+      .where(and(
+        eq(watchlist.market, marketType),
+        eq(watchlists.userId, userId)
+      ));
 
-    // Get alert stats filtered by market
+    // Get alert stats filtered by user and market (join with user_alerts)
     const alertStats = await db
       .select({
         total: count(),
@@ -46,7 +54,11 @@ router.get('/', async (req: Request, res: Response) => {
         today: sql<number>`COUNT(CASE WHEN DATE(${alerts.timestamp}) = CURRENT_DATE THEN 1 END)`,
       })
       .from(alerts)
-      .where(eq(alerts.market, marketType));
+      .innerJoin(userAlerts, eq(alerts.id, userAlerts.alertId))
+      .where(and(
+        eq(alerts.market, marketType),
+        eq(userAlerts.userId, userId)
+      ));
 
     // Check Redis connection
     let redisConnected = false;
