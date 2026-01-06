@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import logger from '../utils/logger';
 
 export interface NSESymbolData {
   symbol: string;
@@ -64,7 +65,7 @@ export class NSEApiService {
         this.lastCookieRefresh = now;
       }
     } catch (error) {
-      console.warn('Failed to refresh NSE cookies:', error);
+      // Silent fail - cookies will retry on next request
     }
   }
 
@@ -76,7 +77,7 @@ export class NSEApiService {
       const response = await this.client.get('/api/allIndices');
       return response.data?.data ?? [];
     } catch (error) {
-      console.error('Error fetching NSE indices:', error);
+      logger.error('Error fetching NSE indices', { error });
       throw new Error('Failed to fetch NSE indices');
     }
   }
@@ -109,7 +110,7 @@ export class NSEApiService {
 
       return null;
     } catch (error) {
-      console.error(`Error fetching NSE quote for ${symbol}:`, error);
+      // Silent fail - validation will use Yahoo Finance fallback
       return null;
     }
   }
@@ -131,7 +132,7 @@ export class NSEApiService {
         // Small delay to avoid rate limiting
         await new Promise((resolve) => setTimeout(resolve, 100));
       } catch (error) {
-        console.error(`Error fetching quote for ${symbol}:`, error);
+        // Skip failed quotes silently
       }
     }
     

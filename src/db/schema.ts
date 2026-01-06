@@ -121,3 +121,63 @@ export const userAlertsRelations = relations(userAlerts, ({ one }) => ({
   }),
 }));
 
+// Subscription Plans table - stores plan metadata
+export const subscriptionPlans = pgTable('subscription_plans', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull().unique(), // 'FREE', 'PREMIUM', 'PRO'
+  priceMonthly: decimal('price_monthly', { precision: 10, scale: 2 }).notNull(),
+  maxWatchlists: integer('max_watchlists').notNull(),
+  maxAssetsPerWatchlist: integer('max_assets_per_watchlist').notNull(),
+  prioritySupport: boolean('priority_support').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// User Subscriptions table - links users to active subscriptions
+export const userSubscriptions = pgTable('user_subscriptions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull(), // Supabase user ID
+  planId: uuid('plan_id').notNull().references(() => subscriptionPlans.id),
+  status: text('status').notNull(), // 'ACTIVE', 'CANCELLED', 'EXPIRED', 'PENDING', 'TRIAL'
+  paymentGateway: text('payment_gateway'), // 'RAZORPAY', 'STRIPE'
+  paymentGatewaySubscriptionId: text('payment_gateway_subscription_id'), // External subscription ID
+  currentPeriodStart: timestamp('current_period_start').notNull(),
+  currentPeriodEnd: timestamp('current_period_end').notNull(),
+  cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Payment Transactions table - tracks payment history
+export const paymentTransactions = pgTable('payment_transactions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull(), // Supabase user ID
+  subscriptionId: uuid('subscription_id').references(() => userSubscriptions.id),
+  amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
+  currency: text('currency').notNull().default('INR'),
+  paymentGateway: text('payment_gateway').notNull(), // 'RAZORPAY', 'STRIPE'
+  paymentGatewayTransactionId: text('payment_gateway_transaction_id'),
+  status: text('status').notNull(), // 'PENDING', 'SUCCESS', 'FAILED', 'REFUNDED'
+  paymentMethod: text('payment_method'), // 'UPI', 'CARD', 'NETBANKING', 'WALLET'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Relations
+export const subscriptionPlansRelations = relations(subscriptionPlans, ({ many }) => ({
+  userSubscriptions: many(userSubscriptions),
+}));
+
+export const userSubscriptionsRelations = relations(userSubscriptions, ({ one, many }) => ({
+  plan: one(subscriptionPlans, {
+    fields: [userSubscriptions.planId],
+    references: [subscriptionPlans.id],
+  }),
+  paymentTransactions: many(paymentTransactions),
+}));
+
+export const paymentTransactionsRelations = relations(paymentTransactions, ({ one }) => ({
+  subscription: one(userSubscriptions, {
+    fields: [paymentTransactions.subscriptionId],
+    references: [userSubscriptions.id],
+  }),
+}));
+

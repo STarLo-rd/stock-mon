@@ -2,7 +2,9 @@ import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import { alerts, watchlist, userAlerts } from '../db/schema';
 import { eq, desc, and } from 'drizzle-orm';
-import { requireAuth, AuthRequest } from '../middleware/auth.middleware';
+import { requireAuth, AuthRequest, optionalAuth } from '../middleware/auth.middleware';
+import { optionalCheckSubscription, SubscriptionRequest } from '../middleware/subscription.middleware';
+import { accessControlService } from '../services/access-control.service';
 import { CacheService } from '../services/cache.service';
 import { SymbolSearchService } from '../services/symbol-search.service';
 import { NSEChartService } from '../services/nse-chart.service';
@@ -18,8 +20,9 @@ const historicalPriceService = new HistoricalPriceService();
 /**
  * GET /api/symbols/search
  * Search for symbols matching query
+ * If user is authenticated, filters results by subscription plan
  */
-router.get('/search', async (req: Request, res: Response) => {
+router.get('/search', optionalAuth, optionalCheckSubscription, async (req: SubscriptionRequest, res: Response) => {
   try {
     const { q, type } = req.query;
 
@@ -31,7 +34,16 @@ router.get('/search', async (req: Request, res: Response) => {
     }
 
     const searchType = type === 'INDEX' || type === 'STOCK' || type === 'MUTUAL_FUND' ? type : undefined;
-    const results = await symbolSearch.searchSymbols(q, searchType);
+    let results = await symbolSearch.searchSymbols(q, searchType);
+
+    // If user is authenticated, filter by subscription plan
+    if (req.userId) {
+      results = await accessControlService.filterSymbolsByPlan(req.userId, results);
+    } else {
+      // For unauthenticated users, show only FREE tier symbols
+      const freeResults = await accessControlService.filterSymbolsByPlan('', results);
+      results = freeResults;
+    }
 
     res.json({
       success: true,

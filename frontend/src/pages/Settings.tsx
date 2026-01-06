@@ -6,12 +6,15 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Separator } from '../components/ui/separator';
 import { useToast } from '../hooks/use-toast';
-import { Loader2, User, Lock, Mail, Calendar } from 'lucide-react';
+import { Loader2, User, Lock, Mail, Calendar, Crown } from 'lucide-react';
 import { api } from '../services/api';
+import { SubscriptionStatus } from '../components/subscription/SubscriptionStatus';
+import { useNavigate } from 'react-router-dom';
 
 const Settings: React.FC = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   
   const [loading, setLoading] = useState(false);
   const [userInfo, setUserInfo] = useState<{
@@ -125,6 +128,29 @@ const Settings: React.FC = () => {
       </div>
 
       <div className="space-y-6">
+        {/* Subscription Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Crown className="h-5 w-5" />
+              Subscription & Billing
+            </CardTitle>
+            <CardDescription>Manage your subscription plan and billing</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SubscriptionStatus />
+            <div className="mt-4">
+              <Button 
+                onClick={() => navigate('/upgrade')}
+                className="w-full"
+              >
+                <Crown className="mr-2 h-4 w-4" />
+                Upgrade Plan
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Profile Information */}
         <Card>
           <CardHeader>

@@ -185,7 +185,7 @@ export function WatchlistSidebar({ type }: WatchlistSidebarProps) {
       return;
     }
 
-    // Check limit before creating (configurable via env)
+    // Check watchlist limit for this type (per category)
     const MAX_WATCHLISTS = limits?.maxWatchlistsPerType ?? 4;
     if (watchlists.length >= MAX_WATCHLISTS) {
       setUpgradeModalOpen(true);

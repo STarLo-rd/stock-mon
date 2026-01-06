@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { db } from '../db';
 import { alerts, watchlist, watchlists, userAlerts } from '../db/schema';
 import { eq, desc, and, gte, lte, inArray } from 'drizzle-orm';
@@ -123,12 +123,47 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
       }
     });
 
+      // Fetch missing mutual fund names from API
+    const missingNames = new Map<string, Promise<string | null>>();
+    for (const alert of alertResults) {
+      const nameType = nameTypeMap.get(alert.symbol);
+      if (nameType?.type === 'MUTUAL_FUND' && !nameType.name) {
+        const schemeCode = parseInt(alert.symbol, 10);
+        if (!isNaN(schemeCode) && !missingNames.has(alert.symbol)) {
+          missingNames.set(
+            alert.symbol,
+            (async () => {
+              try {
+                const { MutualFundApiService } = await import('../services/mutual-fund-api.service');
+                const mfService = new MutualFundApiService();
+                const schemeInfo = await mfService.getSchemeInfo(schemeCode);
+                return schemeInfo?.scheme_name ?? null;
+              } catch (error) {
+                logger.warn(`Could not fetch name for mutual fund ${alert.symbol}:`, error);
+                return null;
+              }
+            })()
+          );
+        }
+      }
+    }
+
+    // Wait for all name fetches to complete
+    const fetchedNames = new Map<string, string | null>();
+    for (const [symbol, promise] of missingNames) {
+      fetchedNames.set(symbol, await promise);
+    }
+
     // Enrich alerts with name and type
-    const results = alertResults.map(alert => ({
-      ...alert,
-      name: nameTypeMap.get(alert.symbol)?.name ?? null,
-      type: nameTypeMap.get(alert.symbol)?.type ?? null,
-    }));
+    const results = alertResults.map(alert => {
+      const nameType = nameTypeMap.get(alert.symbol);
+      const fetchedName = fetchedNames.get(alert.symbol);
+      return {
+        ...alert,
+        name: nameType?.name ?? fetchedName ?? null,
+        type: nameType?.type ?? null,
+      };
+    });
 
     // Get total count for pagination (user-scoped)
     const totalCount = await db
@@ -260,12 +295,47 @@ router.get('/today', requireAuth, async (req: AuthRequest, res: Response) => {
       }
     });
 
+    // Fetch missing mutual fund names from API
+    const missingNames = new Map<string, Promise<string | null>>();
+    for (const alert of alertResults) {
+      const nameType = nameTypeMap.get(alert.symbol);
+      if (nameType?.type === 'MUTUAL_FUND' && !nameType.name) {
+        const schemeCode = parseInt(alert.symbol, 10);
+        if (!isNaN(schemeCode) && !missingNames.has(alert.symbol)) {
+          missingNames.set(
+            alert.symbol,
+            (async () => {
+              try {
+                const { MutualFundApiService } = await import('../services/mutual-fund-api.service');
+                const mfService = new MutualFundApiService();
+                const schemeInfo = await mfService.getSchemeInfo(schemeCode);
+                return schemeInfo?.scheme_name ?? null;
+              } catch (error) {
+                logger.warn(`Could not fetch name for mutual fund ${alert.symbol}:`, error);
+                return null;
+              }
+            })()
+          );
+        }
+      }
+    }
+
+    // Wait for all name fetches to complete
+    const fetchedNames = new Map<string, string | null>();
+    for (const [symbol, promise] of missingNames) {
+      fetchedNames.set(symbol, await promise);
+    }
+
     // Enrich alerts with name and type
-    const results = alertResults.map(alert => ({
-      ...alert,
-      name: nameTypeMap.get(alert.symbol)?.name ?? null,
-      type: nameTypeMap.get(alert.symbol)?.type ?? null,
-    }));
+    const results = alertResults.map(alert => {
+      const nameType = nameTypeMap.get(alert.symbol);
+      const fetchedName = fetchedNames.get(alert.symbol);
+      return {
+        ...alert,
+        name: nameType?.name ?? fetchedName ?? null,
+        type: nameType?.type ?? null,
+      };
+    });
 
     // Get total count for pagination
     const totalCount = await db
@@ -351,10 +421,28 @@ router.get('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
       ))
       .limit(1);
 
+    // Fetch name from API if missing and it's a mutual fund
+    let name = watchlistData[0]?.name ?? null;
+    const type = watchlistData[0]?.type ?? null;
+    
+    if (type === 'MUTUAL_FUND' && !name) {
+      const schemeCode = parseInt(alert.symbol, 10);
+      if (!isNaN(schemeCode)) {
+        try {
+          const { MutualFundApiService } = await import('../services/mutual-fund-api.service');
+          const mfService = new MutualFundApiService();
+          const schemeInfo = await mfService.getSchemeInfo(schemeCode);
+          name = schemeInfo?.scheme_name ?? null;
+        } catch (error) {
+          logger.warn(`Could not fetch name for mutual fund ${alert.symbol}:`, error);
+        }
+      }
+    }
+
     const result = {
       ...alert,
-      name: watchlistData[0]?.name ?? null,
-      type: watchlistData[0]?.type ?? null,
+      name,
+      type,
     };
 
     res.json({

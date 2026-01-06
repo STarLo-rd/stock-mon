@@ -23,6 +23,7 @@ import { EmailConfirm } from './pages/auth/EmailConfirm';
 import Landing from './pages/Landing';
 import { PublicRoute } from './components/auth/PublicRoute';
 import Onboarding from './pages/Onboarding';
+import Upgrade from './pages/Upgrade';
 import './App.css';
 
 /**
@@ -137,6 +138,16 @@ const App: React.FC = () => {
                     <ProtectedRoute>
                       <Layout>
                         <Settings />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/upgrade"
+                  element={
+                    <ProtectedRoute>
+                      <Layout>
+                        <Upgrade />
                       </Layout>
                     </ProtectedRoute>
                   }

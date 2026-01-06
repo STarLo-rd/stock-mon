@@ -2,6 +2,7 @@ import { seedIndices } from './seed-indices';
 import { seedStocks } from './seed-stocks';
 import { seedMutualFunds } from './seed-mutual-funds';
 import { seedUSA } from './seed-usa';
+import { seedSubscriptionPlans } from './seed-subscription-plans';
 
 /**
  * Main seeder - runs all seed functions
@@ -18,6 +19,9 @@ async function seedAll(): Promise<void> {
   const startTime = Date.now();
 
   try {
+    // Seed subscription plans first (required for other operations)
+    await seedSubscriptionPlans();
+    
     // Seed Indian market data
     await seedIndices();
     await seedStocks();
@@ -50,5 +54,5 @@ if (require.main === module) {
     });
 }
 
-export { seedAll, seedIndices, seedStocks, seedMutualFunds, seedUSA };
+export { seedAll, seedIndices, seedStocks, seedMutualFunds, seedUSA, seedSubscriptionPlans };
 

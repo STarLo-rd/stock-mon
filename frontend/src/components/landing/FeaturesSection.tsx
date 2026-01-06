@@ -2,28 +2,40 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader } from '../ui/card';
-import { Check, Crown, TrendingUp } from 'lucide-react';
+import { Check, Crown, TrendingUp, Zap } from 'lucide-react';
 
 /**
  * FeaturesSection Component
- * Focus on mutual funds availability
+ * Displays three subscription tiers: FREE, PREMIUM, and PRO
  */
 export const FeaturesSection: React.FC = () => {
   const freeFeatures = [
-    '10 top mutual funds',
-    'NIFTY50 stocks + major indices',
-    'Email alerts for dips',
+    'NIFTY50 stocks',
+    'Top 10 mutual funds',
+    'Top 5 indices',
+    '4 watchlists',
+    '8 assets per watchlist',
+    'Email + Telegram alerts',
     'Daily market summary',
-    'Unlimited watchlist size',
+  ];
+
+  const premiumFeatures = [
+    'Everything in FREE',
+    'NIFTY50 + Midcap150 stocks',
+    'Top 20 mutual funds',
+    '8 watchlists',
+    'Up to 15 assets per watchlist',
+    'Email + Telegram alerts',
+    'Priority support',
   ];
 
   const proFeatures = [
-    'Everything in FREE',
-    'All mutual funds (3,000+ funds)',
-    'Real-time alerts (every 5 min)',
-    'SMS + Telegram + Push notifications',
-    'Recovery alerts (when to book profits)',
-    'Custom stocks beyond NIFTY50',
+    'Everything in PREMIUM',
+    'Any stocks (Nifty50, Midcap, Smallcap)',
+    'Any mutual funds (3,000+ funds)',
+    'Up to 15 watchlists',
+    'Up to 30 assets per watchlist',
+    'Email + Telegram alerts',
     'Priority support',
   ];
 
@@ -40,21 +52,21 @@ export const FeaturesSection: React.FC = () => {
               </span>
             </div>
             <h2 className="text-5xl font-bold tracking-tight sm:text-6xl text-gray-900 mb-6">
-              10 Top Mutual Funds. All Major Stocks.
+              Choose Your Plan. Scale Your Wealth.
             </h2>
             <p className="mt-4 text-xl text-gray-600">
-              Start with top funds for free, upgrade to monitor your entire portfolio
+              Start free with NIFTY50 stocks, upgrade as your portfolio grows
             </p>
           </div>
 
           {/* Pricing Cards */}
-          <div className="grid gap-8 lg:grid-cols-2 max-w-5xl mx-auto">
+          <div className="grid gap-8 lg:grid-cols-3 max-w-7xl mx-auto">
             {/* FREE Tier */}
             <Card className="border-2 border-gray-200 bg-white hover:shadow-xl transition-all duration-300">
               <CardHeader className="pb-8">
                 <div>
                   <h3 className="text-2xl font-bold text-gray-900">FREE</h3>
-                  <p className="text-sm text-gray-600 mt-1">Perfect for most investors</p>
+                  <p className="text-sm text-gray-600 mt-1">Perfect for beginners</p>
                 </div>
                 <div className="mt-6">
                   <div className="flex items-baseline gap-2">
@@ -67,11 +79,11 @@ export const FeaturesSection: React.FC = () => {
                 </div>
               </CardHeader>
               <CardContent className="space-y-6">
-                <ul className="space-y-4">
+                <ul className="space-y-3">
                   {freeFeatures.map((feature, index) => (
                     <li key={index} className="flex items-start gap-3">
                       <Check className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
-                      <span className="text-gray-700">{feature}</span>
+                      <span className="text-gray-700 text-sm">{feature}</span>
                     </li>
                   ))}
                 </ul>
@@ -85,42 +97,89 @@ export const FeaturesSection: React.FC = () => {
               </CardContent>
             </Card>
 
-            {/* PRO Tier */}
-            <Card className="border-2 border-blue-600 bg-white shadow-xl relative">
+            {/* PREMIUM Tier */}
+            <Card className="border-2 border-blue-500 bg-white shadow-lg relative hover:shadow-xl transition-all duration-300">
               <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-                <div className="bg-blue-600 text-white px-6 py-2 rounded-full text-sm font-bold shadow-lg flex items-center gap-2">
+                <div className="bg-blue-500 text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-lg flex items-center gap-1.5">
+                  <Zap className="h-3.5 w-3.5" />
+                  <span>POPULAR</span>
+                </div>
+              </div>
+
+              <CardHeader className="pb-8 pt-8">
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900">PREMIUM</h3>
+                  <p className="text-sm text-gray-600 mt-1">For active investors</p>
+                </div>
+                <div className="mt-6">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-5xl font-bold text-gray-900">₹199</span>
+                    <span className="text-gray-600 text-lg">/month</span>
+                  </div>
+                  <p className="text-sm text-blue-600 font-medium mt-2">
+                    ₹6.63/day
+                  </p>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <ul className="space-y-3">
+                  {premiumFeatures.map((feature, index) => (
+                    <li key={index} className="flex items-start gap-3">
+                      <Check className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-700 text-sm">{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <Button
+                  className="w-full bg-blue-500 hover:bg-blue-600 text-white"
+                  size="lg"
+                  asChild
+                >
+                  <Link to="/signup">Upgrade to PREMIUM</Link>
+                </Button>
+                <p className="text-center text-xs text-gray-600">
+                  7-day money-back guarantee
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* PRO Tier */}
+            <Card className="border-2 border-purple-600 bg-white shadow-xl relative hover:shadow-2xl transition-all duration-300">
+              <div className="absolute -top-4 left-1/2 -translate-x-1/2">
+                <div className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-6 py-2 rounded-full text-sm font-bold shadow-lg flex items-center gap-2">
                   <Crown className="h-4 w-4" />
-                  <span>FOR SERIOUS INVESTORS</span>
+                  <span>MOST POWERFUL</span>
                 </div>
               </div>
 
               <CardHeader className="pb-8 pt-8">
                 <div>
                   <h3 className="text-2xl font-bold text-gray-900">PRO</h3>
-                  <p className="text-sm text-gray-600 mt-1">Real-time alerts, faster wealth</p>
+                  <p className="text-sm text-gray-600 mt-1">For serious investors</p>
                 </div>
                 <div className="mt-6">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-5xl font-bold text-gray-900">₹299</span>
+                    <span className="text-5xl font-bold text-gray-900">₹499</span>
                     <span className="text-gray-600 text-lg">/month</span>
                   </div>
-                  <p className="text-sm text-blue-600 font-medium mt-2">
-                    ₹9.96/day • Cost of 1 coffee = 30 years of compounding
+                  <p className="text-sm text-purple-600 font-medium mt-2">
+                    ₹16.63/day
                   </p>
                 </div>
               </CardHeader>
               <CardContent className="space-y-6">
-                <ul className="space-y-4">
+                <ul className="space-y-3">
                   {proFeatures.map((feature, index) => (
                     <li key={index} className="flex items-start gap-3">
-                      <Check className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                      <span className="text-gray-700">{feature}</span>
+                      <Check className="h-5 w-5 text-purple-600 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-700 text-sm">{feature}</span>
                     </li>
                   ))}
                 </ul>
 
                 <Button
-                  className="w-full bg-blue-600 hover:bg-blue-700"
+                  className="w-full bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white"
                   size="lg"
                   asChild
                 >
@@ -128,19 +187,6 @@ export const FeaturesSection: React.FC = () => {
                 </Button>
                 <p className="text-center text-xs text-gray-600">
                   7-day money-back guarantee • Cancel anytime
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Fund Coverage Highlight */}
-          <div className="mt-16 text-center">
-            <Card className="border-2 border-gray-200 bg-gray-50 inline-block max-w-4xl">
-              <CardContent className="p-8">
-                <p className="text-lg text-gray-700">
-                  <span className="font-bold text-gray-900">FREE tier:</span> 10 top mutual funds + All NIFTY50 stocks.{' '}
-                  <span className="font-bold text-gray-900">PRO tier:</span> All mutual funds (Equity, Debt, Hybrid, Index, ELSS, Sectoral) + All NIFTY50 stocks (Reliance, TCS, Infosys, HDFC Bank & more).{' '}
-                  <span className="font-semibold text-blue-600">Upgrade to monitor everything.</span>
                 </p>
               </CardContent>
             </Card>

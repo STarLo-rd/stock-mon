@@ -1,5 +1,5 @@
 import React from 'react';
-import { Circle, Moon, Sun, Menu, User, LogOut, Settings } from 'lucide-react';
+import { Circle, Moon, Sun, Menu, User, LogOut, Settings, Crown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,6 +16,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { useStatus } from '../../hooks/usePrices';
 import { useNavigate } from 'react-router-dom';
+import { useSubscription } from '../../hooks/useSubscription';
+import { PlanBadge } from '../subscription/PlanBadge';
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -32,9 +34,11 @@ export const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
 
   // Use React Query hook - automatically handles caching, refetching, and deduplication
   const { data: status } = useStatus();
+  const { data: subscriptionData } = useSubscription();
 
   const marketOpen = status?.market?.open ?? false;
   const marketName = 'India';
+  const currentPlan = subscriptionData?.subscription?.plan?.name || 'FREE';
 
   const handleLogout = async () => {
     await signOut();
@@ -42,6 +46,10 @@ export const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
 
   const handleSettings = () => {
     navigate('/settings');
+  };
+
+  const handleUpgrade = () => {
+    navigate('/upgrade');
   };
 
   return (
@@ -102,13 +110,22 @@ export const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
               <DropdownMenuLabel>
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-medium leading-none">{user.email}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs text-muted-foreground">Plan:</span>
+                    <PlanBadge planName={currentPlan} />
+                  </div>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleUpgrade}>
+                <Crown className="mr-2 h-4 w-4" />
+                <span>Upgrade Plan</span>
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={handleSettings}>
                 <Settings className="mr-2 h-4 w-4" />
                 <span>Settings</span>
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout}>
                 <LogOut className="mr-2 h-4 w-4" />
                 <span>Log out</span>

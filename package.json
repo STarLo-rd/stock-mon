@@ -15,6 +15,7 @@
     "db:seed-stocks": "tsx src/db/seeder/seed-stocks.ts",
     "db:seed-mf": "tsx src/db/seeder/seed-mutual-funds.ts",
     "db:seed-usa": "tsx src/db/seeder/seed-usa.ts",
+    "db:seed-subscriptions": "tsx src/db/seeder/seed-subscription-plans.ts",
     "db:cleanup-alerts": "npx tsx src/db/cleanup-redundant-alerts.ts",
     "db:studio": "drizzle-kit studio"
   },
@@ -39,6 +40,7 @@
     "nodemailer": "^6.9.7",
     "pg": "^8.11.3",
     "postgres": "^3.4.3",
+    "razorpay": "^2.9.6",
     "redis": "^4.6.10",
     "winston": "^3.19.0"
   },

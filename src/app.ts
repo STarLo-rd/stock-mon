@@ -7,6 +7,8 @@ import priceRoutes from './routes/price.routes';
 import symbolRoutes from './routes/symbol.routes';
 import marketOverviewRoutes from './routes/market-overview.routes';
 import authRoutes from './routes/auth.routes';
+import subscriptionsRoutes from './routes/subscriptions.routes';
+import webhooksRoutes from './routes/webhooks.routes';
 import { globalRateLimiter } from './middleware/rate-limit.middleware';
 import logger from './utils/logger';
 
@@ -53,6 +55,10 @@ app.use((req, res, next) => {
   next();
 });
 
+// Webhook routes MUST be registered BEFORE express.json() middleware
+// because Razorpay requires raw body for signature verification
+app.use('/api/webhooks', webhooksRoutes);
+
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -69,6 +75,7 @@ app.use('/api/status', statusRoutes);
 app.use('/api/prices', priceRoutes);
 app.use('/api/symbols', symbolRoutes);
 app.use('/api/market-overview', marketOverviewRoutes);
+app.use('/api/subscriptions', subscriptionsRoutes);
 
 // Health check
 app.get('/health', (_req, res) => {

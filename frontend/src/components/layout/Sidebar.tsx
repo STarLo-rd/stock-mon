@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, List, AlertTriangle, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, List, AlertTriangle, X, ChevronLeft, ChevronRight, Crown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
@@ -8,6 +8,7 @@ const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/watchlist', label: 'Watchlist', icon: List },
   { path: '/alerts', label: 'Alerts', icon: AlertTriangle },
+  { path: '/upgrade', label: 'Upgrade', icon: Crown },
 ];
 
 interface SidebarProps {

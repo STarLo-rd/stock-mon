@@ -64,6 +64,7 @@ router.get('/top-movers', requireAuth, async (req: AuthRequest, res: Response) =
     const movers: Array<{
       symbol: string;
       name?: string;
+      type?: string;
       currentPrice: number;
       previousPrice: number | null;
       change: number;
@@ -95,9 +96,26 @@ router.get('/top-movers', requireAuth, async (req: AuthRequest, res: Response) =
         const change = currentPrice - previousPrice;
         const changePercent = (change / previousPrice) * 100;
 
+        // Fetch name from API if missing and it's a mutual fund
+        let name = symbolEntry.name ?? undefined;
+        if (symbolEntry.type === 'MUTUAL_FUND' && !name) {
+          const schemeCode = parseInt(symbolEntry.symbol, 10);
+          if (!isNaN(schemeCode)) {
+            try {
+              const { MutualFundApiService } = await import('../services/mutual-fund-api.service');
+              const mfService = new MutualFundApiService();
+              const schemeInfo = await mfService.getSchemeInfo(schemeCode);
+              name = schemeInfo?.scheme_name ?? undefined;
+            } catch (error) {
+              logger.warn(`Could not fetch name for mutual fund ${symbolEntry.symbol}:`, error);
+            }
+          }
+        }
+
         movers.push({
           symbol: symbolEntry.symbol,
-          name: symbolEntry.name ?? undefined,
+          name,
+          type: symbolEntry.type,
           currentPrice,
           previousPrice,
           change,

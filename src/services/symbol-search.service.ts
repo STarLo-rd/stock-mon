@@ -1,13 +1,17 @@
 import { NSEApiService } from './nse-api.service';
 import { MutualFundApiService } from './mutual-fund-api.service';
+import axios, { AxiosInstance } from 'axios';
 import { db } from '../db';
 import { watchlist } from '../db/schema';
+import { NIFTY50_STOCKS, NIFTY50_COMPANY_NAMES } from '../config/subscription-plans';
+import logger from '../utils/logger';
 
 export interface SymbolSuggestion {
   symbol: string;
   name?: string;
   type: 'INDEX' | 'STOCK' | 'MUTUAL_FUND';
   exchange: string;
+  isAccessible?: boolean; // Whether user can access this symbol based on subscription
 }
 
 /**
@@ -17,6 +21,7 @@ export interface SymbolSuggestion {
 export class SymbolSearchService {
   private nseService: NSEApiService;
   private mfService: MutualFundApiService;
+  private yahooClient: AxiosInstance;
   private indicesCache: Array<{ symbol: string; name: string }> | null = null;
   private indicesCacheTime: Date | null = null;
   private readonly CACHE_TTL = 60 * 60 * 1000; // 1 hour
@@ -24,6 +29,15 @@ export class SymbolSearchService {
   constructor() {
     this.nseService = new NSEApiService();
     this.mfService = new MutualFundApiService();
+    this.yahooClient = axios.create({
+      baseURL: 'https://query1.finance.yahoo.com',
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    });
   }
 
   /**
@@ -81,10 +95,94 @@ export class SymbolSearchService {
       this.indicesCacheTime = now;
       return this.indicesCache;
     } catch (error) {
-      console.error('Error fetching indices:', error);
-      // Return empty array if API fails
+      logger.error('Error fetching indices from NSE API', { error });
       return [];
     }
+  }
+
+  /**
+   * Search stocks via Yahoo Finance API
+   * @param query - Search query
+   * @returns Array of matching NSE stock suggestions
+   */
+  private async searchStocksViaYahoo(query: string): Promise<SymbolSuggestion[]> {
+    try {
+      const response = await this.yahooClient.get('/v1/finance/search', {
+        params: { q: query },
+      });
+
+      const quotes = response.data?.quotes || [];
+
+      // Filter for NSE stocks only
+      const nseStocks = quotes.filter((quote: any) => {
+        return quote.exchange === 'NSI' &&
+               quote.quoteType === 'EQUITY' &&
+               quote.symbol?.endsWith('.NS');
+      });
+
+      // Map to SymbolSuggestion format
+      const results: SymbolSuggestion[] = nseStocks.map((quote: any) => {
+        // Strip .NS suffix from symbol
+        const symbol = quote.symbol.replace(/\.NS$/, '');
+        
+        return {
+          symbol,
+          name: quote.longname || quote.shortname || symbol,
+          type: 'STOCK' as const,
+          exchange: 'NSE',
+        };
+      });
+
+      return results.slice(0, 20); // Limit to top 20 matches
+    } catch (error: any) {
+      logger.error('Error searching stocks via Yahoo Finance', {
+        query,
+        error: error.message || error,
+        status: error.response?.status,
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Search NIFTY50 stocks by symbol or company name
+   * @param query - Search query
+   * @returns Array of matching NIFTY50 stock suggestions
+   */
+  private searchNifty50Stocks(query: string): SymbolSuggestion[] {
+    const upperQuery = query.toUpperCase().trim();
+    const results: SymbolSuggestion[] = [];
+
+    // Search by symbol
+    const symbolMatches = NIFTY50_STOCKS.filter((symbol) =>
+      symbol.includes(upperQuery)
+    );
+
+    // Search by company name
+    const companyMatches = Object.entries(NIFTY50_COMPANY_NAMES)
+      .filter(([symbol, companyName]) => {
+        const upperCompanyName = companyName.toUpperCase();
+        return (
+          upperCompanyName.includes(upperQuery) ||
+          upperQuery.includes(companyName.toUpperCase().split(' ')[0])
+        );
+      })
+      .map(([symbol]) => symbol);
+
+    // Combine and deduplicate
+    const allMatches = Array.from(new Set([...symbolMatches, ...companyMatches]));
+
+    // Create suggestions with company names
+    for (const symbol of allMatches) {
+      results.push({
+        symbol,
+        name: NIFTY50_COMPANY_NAMES[symbol] ?? symbol,
+        type: 'STOCK' as const,
+        exchange: 'NSE',
+      });
+    }
+
+    return results.slice(0, 20); // Limit to 20 results
   }
 
   /**
@@ -99,7 +197,7 @@ export class SymbolSearchService {
         exchange: item.exchange,
       }));
     } catch (error) {
-      console.error('Error fetching popular symbols:', error);
+      logger.error('Error fetching popular symbols', { error });
       return [];
     }
   }
@@ -119,7 +217,7 @@ export class SymbolSearchService {
         exchange: 'MF',
       }));
     } catch (error) {
-      console.error('Error searching mutual funds:', error);
+      logger.error('Error searching mutual funds', { error });
       return [];
     }
   }
@@ -163,36 +261,26 @@ export class SymbolSearchService {
 
     // Search stocks if type is STOCK or not specified
     if (!type || type === 'STOCK') {
-      // Add popular stocks from watchlist
+      // Search NIFTY50 stocks first (fast, instant results)
+      const nifty50Results = this.searchNifty50Stocks(query);
+      results.push(...nifty50Results);
+
+      // Search Yahoo Finance API for broader coverage
+      const yahooResults = await this.searchStocksViaYahoo(query);
+      results.push(...yahooResults);
+
+      // Add popular stocks from watchlist as fallback (only if not already in results)
       const popular = await this.getPopularSymbols();
+      const existingSymbols = new Set(results.map(r => r.symbol.toUpperCase()));
       const matchingPopular = popular
-        .filter((item) => 
-          item.type === 'STOCK' && 
-          item.symbol.includes(upperQuery)
+        .filter((item) =>
+          item.type === 'STOCK' &&
+          item.symbol.includes(upperQuery) &&
+          !existingSymbols.has(item.symbol.toUpperCase())
         )
-        .slice(0, 10); // Limit to 10 popular matches
+        .slice(0, 5); // Limit to 5 popular matches
 
       results.push(...matchingPopular);
-
-      // For exact symbol matches, attempt to validate via API
-      // This allows users to search for any valid NSE stock symbol
-      if (upperQuery.length >= 3 && upperQuery.length <= 20) {
-        // Check if it looks like a valid stock symbol (alphanumeric, uppercase)
-        if (/^[A-Z0-9]+$/.test(upperQuery)) {
-          // Try to validate by attempting quote fetch (async, don't block)
-          // We'll add it to results if validation succeeds
-          this.nseService.getQuote(upperQuery)
-            .then((quote) => {
-              if (quote && quote.lastPrice > 0) {
-                // Symbol exists - could add to cache for future searches
-                console.log(`Validated stock symbol via API: ${upperQuery}`);
-              }
-            })
-            .catch(() => {
-              // Symbol doesn't exist or API error - ignore
-            });
-        }
-      }
     }
 
     // Remove duplicates and limit results
@@ -253,25 +341,48 @@ export class SymbolSearchService {
 
         return { valid: true };
       } else {
-        // Validate stock by attempting to fetch quote from NSE API
+        // Validate stock - try multiple sources for reliability
+
+        // First check: Is it in NIFTY50?
+        if (NIFTY50_STOCKS.includes(upperSymbol)) {
+          return { valid: true };
+        }
+
+        // Second check: Try NSE API
         try {
           const quote = await this.nseService.getQuote(upperSymbol);
-
-          if (!quote || quote.lastPrice <= 0) {
-            return {
-              valid: false,
-              error: `Stock "${upperSymbol}" not found on NSE. Please check the symbol name.`,
-            };
+          if (quote && quote.lastPrice > 0) {
+            return { valid: true };
           }
-
-          return { valid: true };
         } catch (quoteError: any) {
-          // If quote fetch fails (404, network error, etc.), symbol doesn't exist
-          return {
-            valid: false,
-            error: `Stock "${upperSymbol}" not found on NSE. Please check the symbol name.`,
-          };
+          // NSE API failed, will try Yahoo Finance fallback
         }
+
+        // Third check: Try Yahoo Finance as fallback
+        try {
+          const response = await this.yahooClient.get('/v1/finance/search', {
+            params: { q: upperSymbol },
+          });
+
+          const quotes = response.data?.quotes || [];
+          const nseStock = quotes.find((quote: any) =>
+            quote.symbol === `${upperSymbol}.NS` &&
+            quote.exchange === 'NSI' &&
+            quote.quoteType === 'EQUITY'
+          );
+
+          if (nseStock) {
+            return { valid: true };
+          }
+        } catch (yahooError: any) {
+          // Yahoo Finance also failed
+        }
+
+        // If all methods fail, symbol doesn't exist
+        return {
+          valid: false,
+          error: `Stock "${upperSymbol}" not found on NSE. Please check the symbol name.`,
+        };
       }
     } catch (error: any) {
       // If API call fails, assume invalid symbol

@@ -52,3 +52,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS unique_symbol_watchlist_market
 ON watchlist(symbol, watchlist_id, market);
 
 
+

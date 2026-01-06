@@ -170,15 +170,24 @@ const Watchlist: React.FC = () => {
       // Check if it's a limit error
       if (error.response?.data?.limitReached) {
         setUpgradeModalOpen(true);
+      } else if (error.response?.data?.requiresUpgrade) {
+        // Subscription restriction - show upgrade modal
+        setUpgradeModalOpen(true);
+        const errorMessage = error.response?.data?.error ?? 'This asset is not available in your current plan';
+        toast({
+          variant: 'destructive',
+          title: 'Upgrade Required',
+          description: errorMessage,
+        });
       } else {
-      const errorMessage = error.response?.data?.error ?? 'Failed to add symbol';
-      setAddError(errorMessage);
-      
-      toast({
-        variant: 'destructive',
-        title: 'Failed to Add Symbol',
-        description: errorMessage,
-      });
+        const errorMessage = error.response?.data?.error ?? 'Failed to add symbol';
+        setAddError(errorMessage);
+        
+        toast({
+          variant: 'destructive',
+          title: 'Failed to Add Symbol',
+          description: errorMessage,
+        });
       }
     } finally {
       setIsValidating(false);

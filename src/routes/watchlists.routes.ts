@@ -2,7 +2,10 @@ import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import { watchlists, watchlist } from '../db/schema';
 import { eq, and, sql } from 'drizzle-orm';
-import { requireAuth, AuthRequest } from '../middleware/auth.middleware';
+import { requireAuth, AuthRequest, optionalAuth } from '../middleware/auth.middleware';
+import { checkSubscription, SubscriptionRequest, optionalCheckSubscription } from '../middleware/subscription.middleware';
+import { accessControlService } from '../services/access-control.service';
+import { subscriptionService } from '../services/subscription.service';
 import { config } from '../config';
 import logger from '../utils/logger';
 
@@ -26,16 +29,31 @@ function validateMarket(market: any): market is 'INDIA' | 'USA' {
  * GET /api/watchlists/limits
  * Get subscription limits (public endpoint)
  * Returns the current limits for watchlists and items
+ * Limits are per type (INDEX, STOCK, MUTUAL_FUND)
  */
-router.get('/limits', async (_req: Request, res: Response) => {
+router.get('/limits', optionalAuth, optionalCheckSubscription, async (req: SubscriptionRequest, res: Response) => {
   try {
-    res.json({
-      success: true,
-      data: {
-        maxWatchlistsPerType: config.limits.maxWatchlistsPerType,
-        maxItemsPerWatchlist: config.limits.maxItemsPerWatchlist,
-      },
-    });
+    // If user is authenticated, get their subscription limits
+    if (req.userId) {
+      const limits = await subscriptionService.getSubscriptionLimits(req.userId);
+      
+      res.json({
+        success: true,
+        data: {
+          maxWatchlistsPerType: limits.maxWatchlists, // Per type/category limit
+          maxItemsPerWatchlist: limits.maxAssetsPerWatchlist,
+        },
+      });
+    } else {
+      // For unauthenticated users, return default FREE plan limits
+      res.json({
+        success: true,
+        data: {
+          maxWatchlistsPerType: 4, // Per type/category limit
+          maxItemsPerWatchlist: 8,
+        },
+      });
+    }
   } catch (error) {
     logger.error('Error fetching limits', { error });
     res.status(500).json({
@@ -122,7 +140,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
  * Create a new watchlist (user-scoped)
  * Body: { name, type (required), market (optional, defaults to INDIA) }
  */
-router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/', requireAuth, checkSubscription, async (req: SubscriptionRequest, res: Response) => {
   try {
     const userId = req.userId!;
     const { name, type, market = 'INDIA' } = req.body;
@@ -148,26 +166,22 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Check watchlist limit (configurable via env)
-    const MAX_WATCHLISTS_PER_TYPE = config.limits.maxWatchlistsPerType;
-    const existingWatchlists = await db
-      .select({ count: sql<number>`COUNT(*)` })
-      .from(watchlists)
-      .where(and(
-        eq(watchlists.userId, userId),
-        eq(watchlists.market, market as 'INDIA' | 'USA'),
-        eq(watchlists.type, type as 'INDEX' | 'STOCK' | 'MUTUAL_FUND')
-      ));
+    // Check watchlist limit using subscription-based limits
+    const limitCheck = await accessControlService.checkWatchlistLimit(
+      userId,
+      type as 'INDEX' | 'STOCK' | 'MUTUAL_FUND',
+      market as 'INDIA' | 'USA'
+    );
 
-    const watchlistCount = Number(existingWatchlists[0]?.count ?? 0);
-    if (watchlistCount >= MAX_WATCHLISTS_PER_TYPE) {
+    if (!limitCheck.allowed) {
+      const typeLabel = type === 'INDEX' ? 'Indices' : type === 'STOCK' ? 'Stocks' : 'Mutual Funds';
       return res.status(403).json({
         success: false,
-        error: `You have reached the limit of ${MAX_WATCHLISTS_PER_TYPE} watchlists for ${type}. Please upgrade to Premium to create more watchlists.`,
+        error: `You've reached the limit of ${limitCheck.max} watchlists for ${typeLabel}. Please upgrade to create more watchlists.`,
         limitReached: true,
         limitType: 'watchlist',
-        currentCount: watchlistCount,
-        maxLimit: MAX_WATCHLISTS_PER_TYPE,
+        currentCount: limitCheck.current,
+        maxLimit: limitCheck.max,
       });
     }
 

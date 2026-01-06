@@ -3,6 +3,7 @@ import { supabaseAdmin, supabaseClient } from '../config/supabase';
 import { requireAuth, AuthRequest } from '../middleware/auth.middleware';
 import { authRateLimiter } from '../middleware/rate-limit.middleware';
 import { seedDefaultWatchlistsForUser } from '../services/user-seed.service';
+import { subscriptionService } from '../services/subscription.service';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -59,6 +60,18 @@ router.post('/signup', async (req: Request, res: Response) => {
     }
 
     logger.info('User signed up', { userId: data.user.id, email });
+
+    // Assign default FREE subscription
+    try {
+      await subscriptionService.assignDefaultSubscription(data.user.id);
+      logger.info('Default FREE subscription assigned to new user', { userId: data.user.id });
+    } catch (error) {
+      logger.error('Error assigning default subscription to new user', {
+        userId: data.user.id,
+        error,
+      });
+      // Don't fail signup if subscription assignment fails, but log the error
+    }
 
     // Seed default watchlists for new user (synchronous - wait for completion)
     // This ensures watchlists are ready when user first logs in

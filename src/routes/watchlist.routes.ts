@@ -3,6 +3,9 @@ import { db } from '../db';
 import { watchlist, watchlists } from '../db/schema';
 import { eq, and, sql } from 'drizzle-orm';
 import { requireAuth, AuthRequest } from '../middleware/auth.middleware';
+import { checkSubscription, SubscriptionRequest } from '../middleware/subscription.middleware';
+import { accessControlService } from '../services/access-control.service';
+import { subscriptionService } from '../services/subscription.service';
 import { SymbolSearchService } from '../services/symbol-search.service';
 import { CacheService } from '../services/cache.service';
 import { ApiFactoryService } from '../services/api-factory.service';
@@ -112,7 +115,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
  * Validates symbol exists before adding
  * Body: { symbol, type, watchlistId (required), market (required), exchange (optional, defaults to NSE for INDIA), name (optional) }
  */
-router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/', requireAuth, checkSubscription, async (req: SubscriptionRequest, res: Response) => {
   try {
     const userId = req.userId!;
     const { symbol, exchange, type, watchlistId, market = 'INDIA', name } = req.body;
@@ -222,35 +225,50 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Check watchlist item limit (configurable via env)
-    // Count only active items for limit checking (inactive items don't count toward limit)
-    const MAX_ITEMS_PER_WATCHLIST = config.limits.maxItemsPerWatchlist;
-    const existingItems = await db
-      .select({ count: sql<number>`COUNT(*)` })
-      .from(watchlist)
-      .where(and(
-        eq(watchlist.watchlistId, watchlistId),
-        eq(watchlist.market, market as 'INDIA' | 'USA'),
-        eq(watchlist.active, true) // Only count active items toward limit
-      ));
+    // Check if user can access this symbol based on subscription (for INDIA market only)
+    if (market === 'INDIA') {
+      const canAccess = await accessControlService.canAccessSymbol(userId, symbol, type);
+      if (!canAccess) {
+        const subscription = await subscriptionService.getActiveSubscription(userId);
+        const planName = subscription?.planName ?? 'FREE';
+        
+        let errorMessage = '';
+        if (type === 'STOCK') {
+          errorMessage = `This stock is not available in ${planName} plan. FREE tier users can only access NIFTY50 stocks.`;
+        } else if (type === 'MUTUAL_FUND') {
+          errorMessage = `This mutual fund is not available in ${planName} plan. FREE tier users can only access top 15 mutual funds.`;
+        } else if (type === 'INDEX') {
+          errorMessage = `This index is not available in ${planName} plan. FREE tier users can only access top 5 indices.`;
+        }
+        
+        return res.status(403).json({
+          success: false,
+          error: errorMessage,
+          requiresUpgrade: true,
+          planName,
+        });
+      }
+    }
 
-    const itemCount = Number(existingItems[0]?.count ?? 0);
-    if (itemCount >= MAX_ITEMS_PER_WATCHLIST) {
+    // Check watchlist item limit using subscription-based limits
+    const limitCheck = await accessControlService.checkAssetLimit(watchlistId, userId);
+    
+    if (!limitCheck.allowed) {
       logger.warn('Watchlist limit reached', { 
         watchlistId, 
         userId, 
-        itemCount, 
-        maxLimit: MAX_ITEMS_PER_WATCHLIST,
+        currentCount: limitCheck.current, 
+        maxLimit: limitCheck.max,
         market,
         type 
       });
       return res.status(403).json({
         success: false,
-        error: `This watchlist has reached the limit of ${MAX_ITEMS_PER_WATCHLIST} items. Please upgrade to Premium to add more items.`,
+        error: `This watchlist has reached the limit of ${limitCheck.max} items. Please upgrade to add more items.`,
         limitReached: true,
         limitType: 'watchlist_item',
-        currentCount: itemCount,
-        maxLimit: MAX_ITEMS_PER_WATCHLIST,
+        currentCount: limitCheck.current,
+        maxLimit: limitCheck.max,
       });
     }
 

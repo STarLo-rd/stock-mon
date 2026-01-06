@@ -67,13 +67,24 @@ export const TopMovers: React.FC = () => {
                           {index + 1}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm truncate">
-                            {mover.symbol}
-                          </div>
-                          {mover.name && (
-                            <div className="text-xs text-muted-foreground truncate">
-                              {mover.name}
+                          {mover.type === 'MUTUAL_FUND' && mover.name ? (
+                            <div className="flex flex-col">
+                              <span className="font-medium text-sm truncate">{mover.name}</span>
+                              <span className="text-xs text-muted-foreground font-mono truncate">
+                                Scheme Code: {mover.symbol}
+                              </span>
                             </div>
+                          ) : (
+                            <>
+                              <div className="font-medium text-sm truncate">
+                                {mover.symbol}
+                              </div>
+                              {mover.name && (
+                                <div className="text-xs text-muted-foreground truncate">
+                                  {mover.name}
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>
@@ -123,13 +134,24 @@ export const TopMovers: React.FC = () => {
                           {index + 1}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm truncate">
-                            {mover.symbol}
-                          </div>
-                          {mover.name && (
-                            <div className="text-xs text-muted-foreground truncate">
-                              {mover.name}
+                          {mover.type === 'MUTUAL_FUND' && mover.name ? (
+                            <div className="flex flex-col">
+                              <span className="font-medium text-sm truncate">{mover.name}</span>
+                              <span className="text-xs text-muted-foreground font-mono truncate">
+                                Scheme Code: {mover.symbol}
+                              </span>
                             </div>
+                          ) : (
+                            <>
+                              <div className="font-medium text-sm truncate">
+                                {mover.symbol}
+                              </div>
+                              {mover.name && (
+                                <div className="text-xs text-muted-foreground truncate">
+                                  {mover.name}
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>

@@ -47,6 +47,11 @@ export const config = {
     maxWatchlistsPerType: parseInt(process.env.MAX_WATCHLISTS_PER_TYPE ?? '4', 10),
     maxItemsPerWatchlist: parseInt(process.env.MAX_ITEMS_PER_WATCHLIST ?? '8', 10),
   },
+  razorpay: {
+    keyId: process.env.RAZORPAY_KEY_ID ?? '',
+    keySecret: process.env.RAZORPAY_KEY_SECRET ?? '',
+    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET ?? '',
+  },
   rateLimit: {
     global: {
       windowMs: parseInt(process.env.RATE_LIMIT_GLOBAL_WINDOW_MS ?? '900000', 10), // 15 minutes default

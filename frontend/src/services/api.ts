@@ -105,6 +105,7 @@ export interface SystemStatus {
 export interface TopMover {
   symbol: string;
   name?: string;
+  type?: string;
   currentPrice: number;
   previousPrice: number;
   change: number;
@@ -178,7 +179,7 @@ export const api = {
     },
   },
   watchlists: {
-    getLimits: async (): Promise<{ success: boolean; data: { maxWatchlistsPerType: number; maxItemsPerWatchlist: number } }> => {
+    getLimits: async (): Promise<{ success: boolean; data: { maxWatchlists: number; maxWatchlistsPerType: number; maxItemsPerWatchlist: number; currentWatchlistCount?: number } }> => {
       const response = await apiClient.get('/api/watchlists/limits');
       return response.data;
     },
@@ -286,6 +287,51 @@ export const api = {
       const params: any = { market };
       if (type) params.type = type;
       const response = await apiClient.get('/api/market-overview/symbols-requiring-attention', { params });
+      return response.data;
+    },
+  },
+  subscriptions: {
+    getPlans: async (): Promise<{ success: boolean; data: Array<{ id: string; name: string; priceMonthly: string; maxWatchlists: number; maxAssetsPerWatchlist: number; prioritySupport: boolean }> }> => {
+      const response = await apiClient.get('/api/subscriptions/plans');
+      return response.data;
+    },
+    getCurrent: async (): Promise<{
+      success: boolean;
+      data: {
+        subscription: {
+          id: string | null;
+          plan: {
+            id: string;
+            name: string;
+            priceMonthly: string;
+            maxWatchlists: number;
+            maxAssetsPerWatchlist: number;
+          } | null;
+          status: string;
+          currentPeriodStart: Date;
+          currentPeriodEnd: Date;
+          cancelAtPeriodEnd: boolean;
+        };
+        limits: {
+          maxWatchlists: number;
+          maxAssetsPerWatchlist: number;
+          prioritySupport: boolean;
+        };
+      };
+    }> => {
+      const response = await apiClient.get('/api/subscriptions/current');
+      return response.data;
+    },
+    getLimits: async (): Promise<{ success: boolean; data: { maxWatchlists: number; maxAssetsPerWatchlist: number; prioritySupport: boolean } }> => {
+      const response = await apiClient.get('/api/subscriptions/limits');
+      return response.data;
+    },
+    create: async (planId: string, confirmDowngrade?: boolean): Promise<{ success: boolean; data: { subscriptionId: string; razorpayKey: string; planId: string; userEmail: string; isFree: boolean } }> => {
+      const response = await apiClient.post('/api/subscriptions/create', { planId, confirmDowngrade });
+      return response.data;
+    },
+    cancel: async (): Promise<{ success: boolean; message: string }> => {
+      const response = await apiClient.post('/api/subscriptions/cancel');
       return response.data;
     },
   },
